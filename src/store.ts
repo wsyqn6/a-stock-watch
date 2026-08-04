@@ -10,37 +10,47 @@ export class Store implements vscode.Disposable {
   private core: WatchlistCore;
 
   constructor(initial?: string[]) {
-    this.core = new WatchlistCore(initial ?? [], (s) => this.persist(s));
+    this.core = new WatchlistCore(initial ?? this.read(), (s) => this.persist(s));
   }
 
   static migrateLegacy(context: vscode.ExtensionContext): Store {
     const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
     const inspected = config.inspect<string[]>(WATCHLIST_KEY);
-    const hasConfig =
-      inspected?.globalValue !== undefined ||
-      inspected?.workspaceValue !== undefined ||
-      inspected?.workspaceFolderValue !== undefined;
-    let initial: string[] | undefined;
+    const hasConfig = Store.configSet(inspected);
     if (!hasConfig) {
       const legacy: unknown = context.globalState.get(LEGACY_KEY);
       const legacyList = Array.isArray(legacy)
         ? legacy.filter((x): x is string => typeof x === 'string')
         : [];
-      initial = legacyList.length > 0 ? legacyList : [...DEFAULT_SYMBOLS];
+      const seeds = legacyList.length > 0 ? legacyList : [...DEFAULT_SYMBOLS];
+      void config.update(WATCHLIST_KEY, seeds, vscode.ConfigurationTarget.Global);
+      return new Store(seeds);
     }
-    const store = new Store(initial);
-    if (initial) {
-      store.persist(initial);
+    return new Store();
+  }
+
+  private static configSet(
+    inspected: { globalValue?: unknown; workspaceValue?: unknown; workspaceFolderValue?: unknown } | undefined,
+  ): boolean {
+    return (
+      inspected?.globalValue !== undefined ||
+      inspected?.workspaceValue !== undefined ||
+      inspected?.workspaceFolderValue !== undefined
+    );
+  }
+
+  private read(): string[] {
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const inspected = config.inspect<string[]>(WATCHLIST_KEY);
+    if (!Store.configSet(inspected)) {
+      return [...DEFAULT_SYMBOLS];
     }
-    return store;
+    const raw: unknown = config.get<string[]>(WATCHLIST_KEY, []);
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
   }
 
   reload(): void {
-    const raw: unknown = vscode.workspace
-      .getConfiguration(CONFIG_SECTION)
-      .get<string[]>(WATCHLIST_KEY, []);
-    const list = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
-    this.core = new WatchlistCore(list, (s) => this.persist(s));
+    this.core = new WatchlistCore(this.read(), (s) => this.persist(s));
   }
 
   getAll(): string[] {
