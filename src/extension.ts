@@ -2,7 +2,11 @@ import * as vscode from 'vscode';
 import { Store } from './store';
 import { WatchlistProvider } from './watchlistProvider';
 import { RefreshManager } from './refreshManager';
-import { normalizeCode } from './stockCode';
+import { searchStock, SearchResult } from './search';
+
+interface PickItem extends vscode.QuickPickItem {
+  result?: SearchResult;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const store = Store.load(context.globalState);
@@ -17,34 +21,55 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(customView, provider, refreshManager);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('a-stock-watch.add', async () => {
-      const input = await vscode.window.showInputBox({
-        prompt: '输入 6 位股票/可转债代码',
-        placeHolder: '例如 600519、000001、123456',
-        validateInput: (raw) => {
-          const res = normalizeCode(raw);
-          if (!res.ok) {
-            return res.reason;
+    vscode.commands.registerCommand('a-stock-watch.add', () => {
+      const qp = vscode.window.createQuickPick<PickItem>();
+      qp.placeholder = '搜索代码 / 拼音缩写 / 名称，或直接输入 6 位代码';
+      qp.matchOnDescription = true;
+      qp.matchOnDetail = true;
+      qp.items = [];
+      qp.ignoreFocusOut = true;
+
+      let searchSeq = 0;
+      qp.onDidChangeValue(async (value) => {
+        const seq = ++searchSeq;
+        if (!value.trim()) {
+          qp.items = [];
+          return;
+        }
+        let found: SearchResult[] = [];
+        try {
+          const results = await searchStock(value);
+          if (seq !== searchSeq) {
+            return;
           }
-          if (store.has(res.code)) {
-            return '该股票已在自选列表';
+          found = results;
+        } catch {
+          if (seq !== searchSeq) {
+            return;
           }
-          return undefined;
-        },
-        ignoreFocusOut: true,
+          found = [];
+        }
+        qp.items = found.map((r) => ({
+          label: `${r.name}  ${r.code}`,
+          detail: r.symbol,
+          result: r,
+        }));
       });
-      if (!input) {
-        return;
-      }
-      const res = normalizeCode(input);
-      if (!res.ok) {
-        void vscode.window.showWarningMessage(res.reason);
-        return;
-      }
-      if (!store.add(res.code)) {
-        return;
-      }
-      await refreshManager.refresh();
+
+      qp.onDidAccept(async () => {
+        const item = qp.selectedItems[0];
+        qp.dispose();
+        if (!item?.result) {
+          return;
+        }
+        if (!store.add(item.result.symbol)) {
+          void vscode.window.showInformationMessage(`${item.result.name} 已在自选股中`);
+          return;
+        }
+        await refreshManager.refresh();
+      });
+
+      qp.show();
     }),
   );
 
