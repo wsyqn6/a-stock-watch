@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { StockQuote, fetchQuotes } from './dataSource';
+import { StockQuote, fetchQuotes, getMinuteCached, buildSpark, SparkData } from './dataSource';
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 
@@ -11,15 +11,20 @@ export interface QuoteViewItem {
   changePct: string;
   cls: 'up' | 'down' | 'flat';
   bar: string;
+  spark: SparkData | null;
 }
 
 type SortMode = 'manual' | 'code' | 'name' | 'pctDesc' | 'pctAsc';
+
+const MINUTE_INTERVAL_MS = 60_000;
 
 export class StockViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'aStockWatch';
   private view?: vscode.WebviewView;
   private manager?: RefreshManager;
+  private minuteTimer: NodeJS.Timeout | null = null;
   private quotes: StockQuote[] = [];
+  private sparks = new Map<string, SparkData | null>();
   private error: string | null = null;
   private dark: boolean;
   private sortMode: SortMode = 'manual';
@@ -39,6 +44,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       const type = (msg as { type: string }).type;
       if (type === 'ready') {
         this.push();
+        void this.refreshMinute();
       } else if (type === 'remove') {
         const symbol = (msg as { symbol?: unknown }).symbol;
         if (typeof symbol === 'string' && this.store.remove(symbol)) {
@@ -57,6 +63,52 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     });
     this.manager = new RefreshManager(this.store, this, webviewView);
     this.manager.start();
+    webviewView.onDidChangeVisibility(() => this.onVisibility());
+  }
+
+  private onVisibility(): void {
+    if (this.view?.visible) {
+      this.startMinuteTimer();
+      void this.refreshMinute();
+    } else {
+      this.stopMinuteTimer();
+    }
+  }
+
+  private startMinuteTimer(): void {
+    this.stopMinuteTimer();
+    this.minuteTimer = setInterval(() => void this.refreshMinute(), MINUTE_INTERVAL_MS);
+  }
+
+  private stopMinuteTimer(): void {
+    if (this.minuteTimer) {
+      clearInterval(this.minuteTimer);
+      this.minuteTimer = null;
+    }
+  }
+
+  private async refreshMinute(): Promise<void> {
+    if (!this.view?.visible) {
+      return;
+    }
+    const symbols = this.store.getAll();
+    const prevClose = (q: StockQuote) => q.prevClose;
+    const pcMap = new Map(this.quotes.map((q) => [q.symbol, prevClose(q)]));
+    await Promise.all(
+      symbols.map(async (sym) => {
+        try {
+          const minute = await getMinuteCached(sym);
+          const pc = pcMap.get(sym);
+          this.sparks.set(
+            sym,
+            pc !== undefined ? buildSpark(minute, pc) : null,
+          );
+        } catch {
+          this.sparks.set(sym, null);
+        }
+      }),
+    );
+    this.push();
   }
 
   setSortMode(mode: SortMode): void {
@@ -73,6 +125,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 
   dispose(): void {
+    this.stopMinuteTimer();
     this.manager?.dispose();
   }
 
@@ -90,6 +143,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       }
     }
     this.push();
+    void this.refreshMinute();
   }
 
   private ordered(): StockQuote[] {
@@ -112,7 +166,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (!this.view || !this.view.visible) {
       return;
     }
-    const items = this.ordered().map(toViewItem);
+    const items = this.ordered().map((q) => toViewItem(q, this.sparks.get(q.symbol) ?? null));
     void this.view.webview.postMessage({ type: 'quotes', items, error: this.error });
   }
 
@@ -140,6 +194,11 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
 .price{font-weight:600;font-variant-numeric:tabular-nums}
 .pct{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.spark{width:100%;height:18px;display:block;margin:1px 0}
+.spark polyline{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.spark.up polyline{stroke:${up}}
+.spark.down polyline{stroke:${down}}
+.spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
 .del{flex:0 0 auto;margin-left:6px;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0 2px}
 .row:hover .del{opacity:.9}
 .del:hover{color:var(--vscode-errorForeground)}
@@ -165,9 +224,13 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   });
   function render(items){
     app.innerHTML=items.map((it,i)=>{
-      return '<div class="row" draggable="true" data-i="'+i+'"><span class="handle" title="拖动排序">⋮⋮</span><span class="bar '+it.cls+'">'+it.bar+'</span><div class="cell"><div class="l1"><span class="name">'+it.name+'</span><span class="pct '+it.cls+'">'+it.changePct+'</span></div><div class="l1"><span class="code">'+it.code+'</span><span class="price '+it.cls+'">'+it.price+'</span></div></div><button class="del" title="删除">✕</button></div>';
+      return '<div class="row" draggable="true" data-i="'+i+'"><span class="handle" title="拖动排序">⋮⋮</span><span class="bar '+it.cls+'">'+it.bar+'</span><div class="cell"><div class="l1"><span class="name">'+it.name+'</span><span class="pct '+it.cls+'">'+it.changePct+'</span></div>'+spark(it)+'<div class="l1"><span class="code">'+it.code+'</span><span class="price '+it.cls+'">'+it.price+'</span></div></div><button class="del" title="删除">✕</button></div>';
     }).join('');
     bind(items);
+  }
+  function spark(it){
+    if(!it.spark||!it.spark.line)return '';
+    return '<svg class="spark '+it.spark.color+'" viewBox="0 0 100 18" preserveAspectRatio="none"><polyline points="'+it.spark.line+'"></polyline></svg>';
   }
   function bind(items){
     const rows=Array.from(app.querySelectorAll('.row'));
@@ -204,7 +267,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   }
 }
 
-function toViewItem(q: StockQuote): QuoteViewItem {
+function toViewItem(q: StockQuote, spark: SparkData | null): QuoteViewItem {
   const cls: QuoteViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
   return {
     sym: q.symbol,
@@ -214,6 +277,7 @@ function toViewItem(q: StockQuote): QuoteViewItem {
     changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
     cls,
     bar: barFor(q.changePct),
+    spark,
   };
 }
 
