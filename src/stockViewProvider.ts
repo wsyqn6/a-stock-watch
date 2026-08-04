@@ -85,12 +85,12 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:8px 4px}
-.row{display:flex;align-items:center;padding:5px 8px;border-bottom:1px solid var(--vscode-panel-border)}
+.row{display:flex;align-items:center;padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border)}
 .bar{width:16px;flex:0 0 auto;text-align:center;font-size:11px;font-weight:700;margin-right:6px}
-.cell{flex:1;min-width:0;display:flex;justify-content:space-between;align-items:baseline}
+.cell{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .l1{display:flex;justify-content:space-between;align-items:baseline;width:100%}
-.name{font-weight:600}
-.code{font-size:11px;color:var(--vscode-descriptionForeground)}
+.name{font-weight:600;font-size:13px}
+.code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
 .price{font-weight:600;font-variant-numeric:tabular-nums}
 .pct{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
 .up{color:${up}}
