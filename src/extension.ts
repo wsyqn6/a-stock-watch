@@ -8,9 +8,18 @@ interface PickItem extends vscode.QuickPickItem {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const store = Store.load(context.globalState);
+  const store = Store.migrateLegacy(context);
   const provider = new StockViewProvider(store);
   context.subscriptions.push(provider);
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('aStockWatch.watchlist')) {
+        store.reload();
+        provider.refreshNow();
+      }
+    }),
+  );
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(StockViewProvider.viewType, provider),
@@ -85,6 +94,24 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       if (store.remove(picked.value)) {
         provider.notifyChanged();
+      }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('a-stock-watch.sort', async () => {
+      const pick = await vscode.window.showQuickPick(
+        [
+          { label: '手动顺序', description: '拖拽排好的顺序', value: 'manual' },
+          { label: '按代码', value: 'code' },
+          { label: '按名称', value: 'name' },
+          { label: '按涨跌幅 ↓', value: 'pctDesc' },
+          { label: '按涨跌幅 ↑', value: 'pctAsc' },
+        ],
+        { placeHolder: '选择排序方式' },
+      );
+      if (pick) {
+        provider.setSortMode(pick.value as 'manual' | 'code' | 'name' | 'pctDesc' | 'pctAsc');
       }
     }),
   );

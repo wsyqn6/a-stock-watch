@@ -1,65 +1,73 @@
-import { Memento } from 'vscode';
+import * as vscode from 'vscode';
+import { WatchlistCore } from './watchlistCore';
 
-const KEY = 'aStockWatch.list';
-const VERSION_KEY = 'aStockWatch.version';
-const INIT_KEY = 'aStockWatch.initialized';
-const VERSION = 1;
-
+const CONFIG_SECTION = 'aStockWatch';
+const WATCHLIST_KEY = 'watchlist';
+const LEGACY_KEY = 'aStockWatch.list';
 const DEFAULT_SYMBOLS = ['sh000001', 'sz399001'];
 
-export class Store {
-  private symbols: string[];
+export class Store implements vscode.Disposable {
+  private core: WatchlistCore;
 
-  constructor(
-    private storage: Memento,
-    loaded: string[],
-  ) {
-    this.symbols = loaded;
+  constructor(initial?: string[]) {
+    this.core = new WatchlistCore(initial ?? [], (s) => this.persist(s));
   }
 
-  static load(storage: Memento): Store {
-    const raw: unknown = storage.get(KEY, []);
-    const existing = Array.isArray(raw)
-      ? raw.filter((x): x is string => typeof x === 'string')
-      : [];
-    const store = new Store(storage, existing);
-    if (!storage.keys().includes(INIT_KEY)) {
-      store.symbols = [...new Set([...DEFAULT_SYMBOLS, ...existing])];
-      store.save();
+  static migrateLegacy(context: vscode.ExtensionContext): Store {
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const inspected = config.inspect<string[]>(WATCHLIST_KEY);
+    const hasConfig =
+      inspected?.globalValue !== undefined ||
+      inspected?.workspaceValue !== undefined ||
+      inspected?.workspaceFolderValue !== undefined;
+    let initial: string[] | undefined;
+    if (!hasConfig) {
+      const legacy: unknown = context.globalState.get(LEGACY_KEY);
+      const legacyList = Array.isArray(legacy)
+        ? legacy.filter((x): x is string => typeof x === 'string')
+        : [];
+      initial = legacyList.length > 0 ? legacyList : [...DEFAULT_SYMBOLS];
+    }
+    const store = new Store(initial);
+    if (initial) {
+      store.persist(initial);
     }
     return store;
   }
 
+  reload(): void {
+    const raw: unknown = vscode.workspace
+      .getConfiguration(CONFIG_SECTION)
+      .get<string[]>(WATCHLIST_KEY, []);
+    const list = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
+    this.core = new WatchlistCore(list, (s) => this.persist(s));
+  }
+
   getAll(): string[] {
-    return [...this.symbols];
+    return this.core.getAll();
   }
 
   has(symbol: string): boolean {
-    return this.symbols.includes(symbol);
+    return this.core.has(symbol);
   }
 
   add(symbol: string): boolean {
-    if (this.symbols.includes(symbol)) {
-      return false;
-    }
-    this.symbols.push(symbol);
-    this.save();
-    return true;
+    return this.core.add(symbol);
   }
 
   remove(symbol: string): boolean {
-    const idx = this.symbols.indexOf(symbol);
-    if (idx === -1) {
-      return false;
-    }
-    this.symbols.splice(idx, 1);
-    this.save();
-    return true;
+    return this.core.remove(symbol);
   }
 
-  private save(): void {
-    void this.storage.update(INIT_KEY, true);
-    void this.storage.update(VERSION_KEY, VERSION);
-    void this.storage.update(KEY, this.symbols);
+  reorder(symbols: string[]): void {
+    this.core.reorder(symbols);
   }
+
+  private persist(symbols: string[]): void {
+    void vscode.workspace
+      .getConfiguration(CONFIG_SECTION)
+      .update(WATCHLIST_KEY, symbols, vscode.ConfigurationTarget.Global);
+  }
+
+  dispose(): void {}
 }
