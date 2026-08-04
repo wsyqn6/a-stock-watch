@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { Store } from './store';
-import { WatchlistProvider } from './watchlistProvider';
-import { RefreshManager } from './refreshManager';
+import { StockViewProvider } from './stockViewProvider';
 import { searchStock, SearchResult } from './search';
 
 interface PickItem extends vscode.QuickPickItem {
@@ -10,15 +9,12 @@ interface PickItem extends vscode.QuickPickItem {
 
 export function activate(context: vscode.ExtensionContext): void {
   const store = Store.load(context.globalState);
-  const provider = new WatchlistProvider();
+  const provider = new StockViewProvider(store);
+  context.subscriptions.push(provider);
 
-  const customView = vscode.window.createTreeView('aStockWatch', {
-    treeDataProvider: provider,
-  });
-  const refreshManager = new RefreshManager(store, provider, customView);
-  refreshManager.start();
-
-  context.subscriptions.push(customView, provider, refreshManager);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(StockViewProvider.viewType, provider),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('a-stock-watch.add', () => {
@@ -66,7 +62,7 @@ export function activate(context: vscode.ExtensionContext): void {
           void vscode.window.showInformationMessage(`${item.result.name} 已在自选股中`);
           return;
         }
-        await refreshManager.refresh();
+        provider.notifyChanged();
       });
 
       qp.show();
@@ -74,19 +70,28 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('a-stock-watch.remove', async (symbol: string) => {
-      if (typeof symbol !== 'string' || !store.remove(symbol)) {
+    vscode.commands.registerCommand('a-stock-watch.remove', async () => {
+      const symbols = store.getAll();
+      if (symbols.length === 0) {
+        void vscode.window.showInformationMessage('自选股为空');
         return;
       }
-      await refreshManager.refresh();
+      const picked = await vscode.window.showQuickPick(
+        symbols.map((s) => ({ label: s, value: s })),
+        { placeHolder: '选择要删除的自选股' },
+      );
+      if (!picked) {
+        return;
+      }
+      if (store.remove(picked.value)) {
+        provider.notifyChanged();
+      }
     }),
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('a-stock-watch.refresh', () => refreshManager.refresh()),
+    vscode.commands.registerCommand('a-stock-watch.refresh', () => provider.refreshNow()),
   );
-
-  void refreshManager.refresh();
 }
 
 export function deactivate(): void {}

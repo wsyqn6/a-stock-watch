@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import { Store } from './store';
-import { WatchlistProvider } from './watchlistProvider';
-import { fetchQuotes } from './dataSource';
+
+export interface QuoteSink {
+  refresh(symbols: string[]): Promise<void>;
+}
 
 export class RefreshManager implements vscode.Disposable {
   private timer: NodeJS.Timeout | null = null;
@@ -9,8 +11,8 @@ export class RefreshManager implements vscode.Disposable {
 
   constructor(
     private readonly store: Store,
-    private readonly provider: WatchlistProvider,
-    private readonly view: vscode.TreeView<string>,
+    private readonly sink: QuoteSink,
+    private readonly view: vscode.WebviewView,
   ) {}
 
   start(): void {
@@ -43,7 +45,7 @@ export class RefreshManager implements vscode.Disposable {
 
   async refresh(): Promise<void> {
     const symbols = this.store.getAll();
-    await this.provider.refresh(symbols);
+    await this.sink.refresh(symbols);
   }
 
   private stopTimer(): void {
