@@ -1,0 +1,98 @@
+{
+  "name": "a-stock-watch",
+  "displayName": "A-Stock Watch",
+  "description": "A-share (Chinese stock) watchlist with real-time quotes in the VS Code sidebar",
+  "version": "0.1.0",
+  "publisher": "wsyqn6",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:aStockWatch"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "activitybar": [
+        {
+          "id": "aStockWatch",
+          "name": "A股自选",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aStockWatchContainer",
+          "title": "A股自选",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "a-stock-watch.add",
+        "title": "添加自选股",
+        "icon": "$(add)"
+      },
+      {
+        "command": "a-stock-watch.remove",
+        "title": "删除自选股",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "a-stock-watch.refresh",
+        "title": "刷新行情",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "a-stock-watch.add",
+          "when": "view == aStockWatch",
+          "group": "navigation@1"
+        },
+        {
+          "command": "a-stock-watch.refresh",
+          "when": "view == aStockWatch",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "a-stock-watch.remove",
+          "when": "view == aStockWatch",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "A股自选",
+      "properties": {
+        "aStockWatch.refreshIntervalSec": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 120,
+          "description": "行情刷新间隔（秒）"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "test": "bun test",
+    "package": "bunx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/vscode": "^1.125.0",
+    "typescript": "^7.0.2"
+  }
+}
