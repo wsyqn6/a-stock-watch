@@ -139,16 +139,32 @@ export function buildSpark(data: MinuteData, prevClose: number): SparkData | nul
 }
 
 const SESSION_TOTAL = 240;
+const MORNING_AUCTION = 555; // 09:15
+const MORNING_OPEN = 570; // 09:30
+const MORNING_END = 690; // 11:30
+const AFTERNOON_START = 780; // 13:00
+const AFTERNOON_END = 900; // 15:00
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 export function sessionMinute(time: string): number {
   const hh = Number(time.slice(0, 2));
   const mm = Number(time.slice(2));
   const t = hh * 60 + mm;
-  if (t < 570) return 0;
-  if (t <= 690) return t - 570;
-  if (t < 780) return 120;
-  if (t <= 900) return t - 660;
+  if (t < MORNING_OPEN) return 0;
+  if (t <= MORNING_END) return t - MORNING_OPEN;
+  if (t < AFTERNOON_START) return 120;
+  if (t <= AFTERNOON_END) return t - (AFTERNOON_START - 120);
   return 240;
+}
+
+export function isTradingTime(now: Date = new Date()): boolean {
+  const bj = new Date(now.getTime() + BEIJING_OFFSET_MS);
+  const day = bj.getUTCDay();
+  if (day === 0 || day === 6) {
+    return false;
+  }
+  const mins = bj.getUTCHours() * 60 + bj.getUTCMinutes();
+  return (mins >= MORNING_AUCTION && mins < MORNING_END) || (mins >= AFTERNOON_START && mins < AFTERNOON_END);
 }
 
 function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {

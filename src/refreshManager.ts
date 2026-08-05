@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Store } from './store';
+import { isTradingTime } from './dataSource';
 
 export interface QuoteSink {
   refresh(symbols: string[]): Promise<void>;
@@ -16,12 +17,11 @@ export class RefreshManager implements vscode.Disposable {
   ) {}
 
   start(): void {
-    this.updateTimer();
-    const interval = () => this.whenVisible();
-    this.view.onDidChangeVisibility(interval);
+    this.view.onDidChangeVisibility(() => this.onVisibility());
+    this.onVisibility();
   }
 
-  private whenVisible(): void {
+  private onVisibility(): void {
     if (this.view.visible) {
       this.updateTimer();
       void this.refresh();
@@ -39,8 +39,14 @@ export class RefreshManager implements vscode.Disposable {
       .getConfiguration('aStockWatch')
       .get<number>('refreshIntervalSec', 3);
     const ms = Math.max(1, sec) * 1000;
-    this.timer = setInterval(() => void this.refresh(), ms);
-    void this.refresh();
+    this.timer = setInterval(() => void this.autoRefresh(), ms);
+  }
+
+  private autoRefresh(): Promise<void> {
+    if (!isTradingTime()) {
+      return Promise.resolve();
+    }
+    return this.refresh();
   }
 
   async refresh(): Promise<void> {

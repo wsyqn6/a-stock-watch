@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { StockQuote, fetchQuotes, getMinuteCached, buildSpark, SparkData } from './dataSource';
+import { StockQuote, fetchQuotes, getMinuteCached, buildSpark, SparkData, isTradingTime } from './dataSource';
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 
@@ -88,7 +88,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async refreshMinute(): Promise<void> {
-    if (!this.view?.visible) {
+    if (!this.view?.visible || !isTradingTime()) {
       return;
     }
     const symbols = this.store.getAll();

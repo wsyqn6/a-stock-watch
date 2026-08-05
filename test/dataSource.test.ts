@@ -4,6 +4,7 @@ import {
   parseMinuteResponse,
   buildSpark,
   sessionMinute,
+  isTradingTime,
   SparkData,
 } from '../src/dataSource';
 
@@ -169,5 +170,28 @@ describe('sessionMinute', () => {
     expect(sessionMinute('0900')).toBe(0);
     expect(sessionMinute('0905')).toBe(0);
     expect(sessionMinute('1530')).toBe(240);
+  });
+});
+
+describe('isTradingTime', () => {
+  // beijing 2026-08-05 is Wednesday; beijing wall time = UTC + 8h
+  const bj = (h: number, m: number) => new Date(Date.UTC(2026, 7, 5, h - 8, m));
+
+  it('allows trading windows from 09:15 auction to close', () => {
+    expect(isTradingTime(bj(9, 14))).toBe(false);
+    expect(isTradingTime(bj(9, 15))).toBe(true);
+    expect(isTradingTime(bj(11, 29))).toBe(true);
+    expect(isTradingTime(bj(11, 30))).toBe(false);
+    expect(isTradingTime(bj(12, 59))).toBe(false);
+    expect(isTradingTime(bj(13, 0))).toBe(true);
+    expect(isTradingTime(bj(14, 59))).toBe(true);
+    expect(isTradingTime(bj(15, 0))).toBe(false);
+  });
+
+  it('returns false on weekends', () => {
+    const sat = new Date(Date.UTC(2026, 7, 8, 2, 0)); // beijing sat 10:00
+    const sun = new Date(Date.UTC(2026, 7, 2, 2, 0)); // beijing sun 10:00
+    expect(isTradingTime(sat)).toBe(false);
+    expect(isTradingTime(sun)).toBe(false);
   });
 });
