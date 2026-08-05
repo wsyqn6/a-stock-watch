@@ -9,6 +9,7 @@ export interface QuoteSink {
 export class RefreshManager implements vscode.Disposable {
   private timer: NodeJS.Timeout | null = null;
   private disposing = false;
+  private refreshing = false;
 
   constructor(
     private readonly store: Store,
@@ -50,8 +51,16 @@ export class RefreshManager implements vscode.Disposable {
   }
 
   async refresh(): Promise<void> {
+    if (this.refreshing) {
+      return;
+    }
     const symbols = this.store.getAll();
-    await this.sink.refresh(symbols);
+    this.refreshing = true;
+    try {
+      await this.sink.refresh(symbols);
+    } finally {
+      this.refreshing = false;
+    }
   }
 
   private stopTimer(): void {

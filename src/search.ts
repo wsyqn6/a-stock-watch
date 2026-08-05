@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './http';
+
 export interface SearchResult {
   name: string;
   code: string;
@@ -5,14 +7,14 @@ export interface SearchResult {
   symbol: string;
 }
 
-const SEARCH_URL = 'http://smartbox.gtimg.cn/s3/?v=2&q=';
+const SEARCH_URL = 'https://smartbox.gtimg.cn/s3/?v=2&q=';
 
 export async function searchStock(query: string): Promise<SearchResult[]> {
   const trimmed = query.trim();
   if (!trimmed) {
     return [];
   }
-  const res = await fetch(SEARCH_URL + encodeURIComponent(trimmed) + '&t=all&c=1');
+  const res = await fetchWithTimeout(SEARCH_URL + encodeURIComponent(trimmed) + '&t=all&c=1');
   if (!res.ok) {
     return [];
   }

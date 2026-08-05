@@ -23,6 +23,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private manager?: RefreshManager;
   private minuteTimer: NodeJS.Timeout | null = null;
+  private refreshingMinute = false;
   private quotes: StockQuote[] = [];
   private sparks = new Map<string, SparkData | null>();
   private error: string | null = null;
@@ -88,26 +89,31 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async refreshMinute(): Promise<void> {
-    if (!this.view?.visible || !isTradingTime()) {
+    if (!this.view?.visible || !isTradingTime() || this.refreshingMinute) {
       return;
     }
-    const symbols = this.store.getAll();
-    const prevClose = (q: StockQuote) => q.prevClose;
-    const pcMap = new Map(this.quotes.map((q) => [q.symbol, prevClose(q)]));
-    await Promise.all(
-      symbols.map(async (sym) => {
-        try {
-          const minute = await getMinuteCached(sym);
-          const pc = pcMap.get(sym);
-          this.sparks.set(
-            sym,
-            pc !== undefined ? buildSpark(minute, pc) : null,
-          );
-        } catch {
-          this.sparks.set(sym, null);
-        }
-      }),
-    );
+    this.refreshingMinute = true;
+    try {
+      const symbols = this.store.getAll();
+      const prevClose = (q: StockQuote) => q.prevClose;
+      const pcMap = new Map(this.quotes.map((q) => [q.symbol, prevClose(q)]));
+      await Promise.all(
+        symbols.map(async (sym) => {
+          try {
+            const minute = await getMinuteCached(sym);
+            const pc = pcMap.get(sym);
+            this.sparks.set(
+              sym,
+              pc !== undefined ? buildSpark(minute, pc) : null,
+            );
+          } catch {
+            this.sparks.set(sym, null);
+          }
+        }),
+      );
+    } finally {
+      this.refreshingMinute = false;
+    }
     this.push();
   }
 

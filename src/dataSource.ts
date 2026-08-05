@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './http';
+
 export interface StockQuote {
   symbol: string;
   name: string;
@@ -8,14 +10,14 @@ export interface StockQuote {
   trend: 'up' | 'down' | 'flat';
 }
 
-const TENCENT_URL = 'http://qt.gtimg.cn/q=';
+const TENCENT_URL = 'https://qt.gtimg.cn/q=';
 
 export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
   if (symbols.length === 0) {
     return [];
   }
   const url = TENCENT_URL + symbols.join(',');
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) {
     throw new Error(`行情接口返回 ${res.status}`);
   }
@@ -73,7 +75,7 @@ const SAMPLE_STEP = 5;
 const minuteCache = new Map<string, MinuteData>();
 
 export async function fetchMinute(symbol: string): Promise<MinuteData> {
-  const res = await fetch(MINUTE_URL + encodeURIComponent(symbol));
+  const res = await fetchWithTimeout(MINUTE_URL + encodeURIComponent(symbol));
   if (!res.ok) {
     throw new Error(`分时接口返回 ${res.status}`);
   }
