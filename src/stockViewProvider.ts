@@ -187,7 +187,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .row.drop{border-top:2px solid var(--vscode-focusBorder)}
 .handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
 .handle:active{cursor:grabbing}
-.bar{width:16px;flex:0 0 auto;text-align:center;font-size:11px;font-weight:700;margin-right:6px}
+.bar{width:16px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;margin-right:6px}
 .left{flex:0 0 auto;max-width:45%;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
 .right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
 .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -282,13 +282,29 @@ function toViewItem(q: StockQuote, spark: SparkData | null): QuoteViewItem {
 }
 
 function barFor(pct: number): string {
-  if (pct >= 9.9) return '▲▲';
-  if (pct >= 3) return '▲';
-  if (pct > 0) return '↗';
-  if (pct === 0) return '—';
-  if (pct > -3) return '↘';
-  if (pct > -9.9) return '▼';
-  return '▼▼';
+  if (pct >= 9.9) return rocketGlyph(true);
+  if (pct >= 3) return arrowGlyph('M6 4 V14 M2 8 L6 4 L10 8', '大涨');
+  if (pct > 0) return arrowGlyph('M6 7 V14 M2 11 L6 7 L10 11', '小涨');
+  if (pct === 0) return arrowGlyph('M2 8 H10', '平');
+  if (pct > -3) return arrowGlyph('M6 9 V2 M2 5 L6 9 L10 5', '小跌');
+  if (pct > -9.9) return arrowGlyph('M6 12 V2 M2 8 L6 12 L10 8', '大跌');
+  return rocketGlyph(false);
+}
+
+function arrowGlyph(path: string, title: string): string {
+  return '<svg class="bar-glyph" viewBox="0 0 12 16" width="12" height="16" aria-hidden="true" focusable="false"><title>'+title+'</title><path d="'+path+'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function rocketGlyph(up: boolean): string {
+  const title = up ? '涨停' : '跌停';
+  const body = up
+    ? 'M6 1 C5.4 2.8,4.4 5.5,4 8.8 C4 9.8,8 9.8,8 8.8 C7.6 5.5,6.6 2.8,6 1 Z'
+    : 'M6 15 C5.4 13.2,4.4 10.5,4 7.2 C4 6.2,8 6.2,8 7.2 C7.6 10.5,6.6 13.2,6 15 Z';
+  const fins = up ? 'M4 8 L3 12 M8 8 L9 12' : 'M4 8 L3 4 M8 8 L9 4';
+  const flame = up ? 'M4.9 11 L6 13.6 L7.1 11' : 'M4.9 5 L6 2.4 L7.1 5';
+  const winCy = up ? 4 : 12;
+  const stroke = ' fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
+  return '<svg class="bar-glyph" viewBox="0 0 12 16" width="12" height="16" aria-hidden="true" focusable="false"><title>'+title+'</title><path d="'+body+'"'+stroke+'/><circle cx="6" cy="'+winCy+'" r="1.1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="'+fins+'"'+stroke+'/><path d="'+flame+'"'+stroke+'/></svg>';
 }
 
 function getNonce(): string {
