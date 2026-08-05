@@ -29,6 +29,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private error: string | null = null;
   private dark: boolean;
   private sortMode: SortMode = 'manual';
+  private editMode = false;
 
   constructor(private readonly store: Store) {
     this.dark = this.isDark();
@@ -45,6 +46,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       const type = (msg as { type: string }).type;
       if (type === 'ready') {
         this.push();
+        this.pushEditMode();
         void this.refreshMinute();
       } else if (type === 'remove') {
         const symbol = (msg as { symbol?: unknown }).symbol;
@@ -122,6 +124,20 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     this.push();
   }
 
+  setEditMode(v: boolean): void {
+    this.editMode = v;
+    this.pushEditMode();
+  }
+
+  toggleEditMode(): boolean {
+    this.setEditMode(!this.editMode);
+    return this.editMode;
+  }
+
+  private pushEditMode(): void {
+    void this.view?.webview.postMessage({ type: 'editMode', value: this.editMode });
+  }
+
   notifyChanged(): void {
     void this.manager?.refresh();
   }
@@ -188,7 +204,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:8px 4px}
-.row{display:flex;align-items:center;padding:4px 8px;border-bottom:1px solid var(--vscode-panel-border)}
+.row{display:flex;align-items:center;padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border)}
 .row.drag{opacity:.4}
 .row.drop{border-top:2px solid var(--vscode-focusBorder)}
 .handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
@@ -205,8 +221,9 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .spark.up polyline{stroke:${up}}
 .spark.down polyline{stroke:${down}}
 .spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
-.del{flex:0 0 auto;margin-left:6px;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0 2px}
-.row:hover .del{opacity:.9}
+.del{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0;transition:max-width .15s ease,opacity .15s ease}
+.row:hover .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
+body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .del:hover{color:var(--vscode-errorForeground)}
 .up{color:${up}}
 .down{color:${down}}
@@ -221,25 +238,36 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   const app=document.getElementById('app');
   const api=acquireVsCodeApi();
   api.postMessage({type:'ready'});
+  let editing=false;
+  let cur=[];
   window.addEventListener('message',e=>{
     const m=e.data;
-    if(!m||m.type!=='quotes')return;
+    if(!m)return;
+    if(m.type==='editMode'){ editing=!!m.value; document.body.classList.toggle('editing',editing); if(cur.length)render(cur); return; }
+    if(m.type!=='quotes')return;
     if(m.error){app.innerHTML='<div class="msg">'+m.error+'</div>';return;}
-    if(!m.items||!m.items.length){app.innerHTML='<div class="msg">暂无自选股，点击 + 添加</div>';return;}
+    if(!m.items||!m.items.length){cur=[];app.innerHTML='<div class="msg">暂无自选股，点击 + 添加</div>';return;}
     render(m.items);
   });
   function render(items){
+    cur=items;
     app.innerHTML=items.map((it,i)=>{
-      return '<div class="row" draggable="true" data-i="'+i+'"><span class="handle" title="拖动排序">⋮⋮</span><span class="bar '+it.cls+'">'+it.bar+'</span><div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div><button class="del" title="删除">✕</button></div>';
+      const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
+      return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<span class="bar '+it.cls+'">'+it.bar+'</span><div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div><button class="del" title="删除">✕</button></div>';
     }).join('');
-    bind(items);
+    bind();
   }
   function spark(it){
     if(!it.spark||!it.spark.line)return '';
     return '<svg class="spark '+it.spark.color+'" viewBox="0 0 100 18" preserveAspectRatio="none"><polyline points="'+it.spark.line+'"></polyline></svg>';
   }
-  function bind(items){
+  function bind(){
     const rows=Array.from(app.querySelectorAll('.row'));
+    rows.forEach((row,i)=>{
+      const del=row.querySelector('.del');
+      del.addEventListener('click',()=>api.postMessage({type:'remove',symbol:cur[i].sym}));
+    });
+    if(!editing)return;
     const order=rows.map(r=>+r.dataset.i);
     let from=null;
     rows.forEach((row,i)=>{
@@ -254,11 +282,9 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
         if(from===null||from===i){ from=null; return; }
         const moved=order.splice(from,1)[0];
         order.splice(i,0,moved);
-        api.postMessage({type:'reorder',symbols:order.map(idx=>items[idx].sym)});
+        api.postMessage({type:'reorder',symbols:order.map(idx=>cur[idx].sym)});
         from=null;
       });
-      const del=row.querySelector('.del');
-      del.addEventListener('click',()=>api.postMessage({type:'remove',symbol:items[i].sym}));
     });
   }
 })();

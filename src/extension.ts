@@ -117,6 +117,13 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('a-stock-watch.edit', () => {
+      const editing = provider.toggleEditMode();
+      void vscode.commands.executeCommand('setContext', 'aStockWatch.editing', editing);
+    }),
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('a-stock-watch.refresh', () => provider.refreshNow()),
   );
 }
