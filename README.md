@@ -1,4 +1,4 @@
-# A股行情速览
+# A股速览
 
 ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 ![VS Code](https://img.shields.io/badge/vscode-%5E1.90.0-blue)
@@ -29,7 +29,7 @@
 
 ## 使用
 
-侧边栏「A股自选」图标打开面板。标题栏按钮：
+侧边栏「A股速览」图标打开面板。标题栏按钮：
 
 | 按钮 | 命令 | 说明 |
 | --- | --- | --- |
