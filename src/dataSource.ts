@@ -64,7 +64,7 @@ export interface SparkData {
   line: string;
 }
 
-const MINUTE_URL = 'http://data.gtimg.cn/flashdata/hushen/minute/';
+const MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=';
 const SPARK_WIDTH = 100;
 const SPARK_HEIGHT = 18;
 const SPARK_PAD = 1;
@@ -73,25 +73,30 @@ const SAMPLE_STEP = 5;
 const minuteCache = new Map<string, MinuteData>();
 
 export async function fetchMinute(symbol: string): Promise<MinuteData> {
-  const res = await fetch(MINUTE_URL + symbol + '.js');
+  const res = await fetch(MINUTE_URL + encodeURIComponent(symbol));
   if (!res.ok) {
     throw new Error(`分时接口返回 ${res.status}`);
   }
-  const buf = new Uint8Array(await res.arrayBuffer());
-  const text = new TextDecoder('gb18030').decode(buf);
-  return parseMinuteResponse(text);
+  const text = await res.text();
+  return parseMinuteResponse(text, symbol);
 }
 
-export function parseMinuteResponse(text: string): MinuteData {
-  const dateMatch = /date:\s*(\d{6,8})/.exec(text);
-  const date = dateMatch?.[1] ?? '';
+export function parseMinuteResponse(text: string, symbol: string): MinuteData {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch {
+    return { date: '', points: [] };
+  }
+  const data = (root as { data?: Record<string, unknown> } | null)?.data;
+  const node = data?.[symbol] as { data?: { date?: string; data?: string[] } } | undefined;
+  const date = node?.data?.date ?? '';
   const points: MinutePoint[] = [];
-  for (const line of text.split('\n')) {
-    const m = /^(\d{4})\s+([\d.]+)\s+\d+/.exec(line.trim());
-    if (!m) {
-      continue;
+  for (const row of node?.data?.data ?? []) {
+    const m = /^(\d{4})\s+([\d.]+)/.exec(row.trim());
+    if (m) {
+      points.push({ time: m[1], price: Number(m[2]) });
     }
-    points.push({ time: m[1], price: Number(m[2]) });
   }
   return { date, points };
 }
@@ -127,10 +132,23 @@ export function buildSpark(data: MinuteData, prevClose: number): SparkData | nul
   const last = prices[prices.length - 1];
   const color: SparkData['color'] =
     last > prevClose ? 'up' : last < prevClose ? 'down' : 'flat';
-  const x = (i: number) => SPARK_PAD + (i / (sampled.length - 1)) * (SPARK_WIDTH - 2 * SPARK_PAD);
+  const x = (p: MinutePoint) => SPARK_PAD + (sessionMinute(p.time) / SESSION_TOTAL) * (SPARK_WIDTH - 2 * SPARK_PAD);
   const y = (p: number) => SPARK_HEIGHT - SPARK_PAD - ((p - min) / (max - min)) * (SPARK_HEIGHT - 2 * SPARK_PAD);
-  const line = sampled.map((p, i) => `${x(i).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
+  const line = sampled.map((p) => `${x(p).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
   return { color, line };
+}
+
+const SESSION_TOTAL = 240;
+
+export function sessionMinute(time: string): number {
+  const hh = Number(time.slice(0, 2));
+  const mm = Number(time.slice(2));
+  const t = hh * 60 + mm;
+  if (t < 570) return 0;
+  if (t <= 690) return t - 570;
+  if (t < 780) return 120;
+  if (t <= 900) return t - 660;
+  return 240;
 }
 
 function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {
@@ -138,8 +156,9 @@ function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {
   for (let i = 0; i < points.length; i += step) {
     out.push(points[i]);
   }
-  if (out.length < 2 && points.length >= 2) {
-    out.push(points[points.length - 1]);
+  const last = points[points.length - 1];
+  if (out.length < 2 || out[out.length - 1] !== last) {
+    out.push(last);
   }
   return out;
 }

@@ -182,20 +182,20 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:8px 4px}
-.row{display:flex;align-items:center;padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border)}
+.row{display:flex;align-items:center;padding:4px 8px;border-bottom:1px solid var(--vscode-panel-border)}
 .row.drag{opacity:.4}
 .row.drop{border-top:2px solid var(--vscode-focusBorder)}
 .handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
 .handle:active{cursor:grabbing}
 .bar{width:16px;flex:0 0 auto;text-align:center;font-size:11px;font-weight:700;margin-right:6px}
-.cell{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.l1{display:flex;justify-content:space-between;align-items:baseline;width:100%}
-.name{font-weight:600;font-size:13px}
+.left{flex:0 0 auto;max-width:45%;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
+.right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
+.name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
 .price{font-weight:600;font-variant-numeric:tabular-nums}
 .pct{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
-.spark{width:100%;height:18px;display:block;margin:1px 0}
-.spark polyline{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px}
+.spark polyline{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .spark.up polyline{stroke:${up}}
 .spark.down polyline{stroke:${down}}
 .spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
@@ -224,7 +224,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   });
   function render(items){
     app.innerHTML=items.map((it,i)=>{
-      return '<div class="row" draggable="true" data-i="'+i+'"><span class="handle" title="拖动排序">⋮⋮</span><span class="bar '+it.cls+'">'+it.bar+'</span><div class="cell"><div class="l1"><span class="name">'+it.name+'</span><span class="pct '+it.cls+'">'+it.changePct+'</span></div>'+spark(it)+'<div class="l1"><span class="code">'+it.code+'</span><span class="price '+it.cls+'">'+it.price+'</span></div></div><button class="del" title="删除">✕</button></div>';
+      return '<div class="row" draggable="true" data-i="'+i+'"><span class="handle" title="拖动排序">⋮⋮</span><span class="bar '+it.cls+'">'+it.bar+'</span><div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div><button class="del" title="删除">✕</button></div>';
     }).join('');
     bind(items);
   }

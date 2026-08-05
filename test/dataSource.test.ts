@@ -3,6 +3,8 @@ import {
   parseTencentResponse,
   parseMinuteResponse,
   buildSpark,
+  sessionMinute,
+  SparkData,
 } from '../src/dataSource';
 
 const SAMPLE = `v_sh600519="1~贵州茅台~600519~1421.50~1400.00~1401.00~30246~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~21.50~1.54~1425.00~1400.00~0~0~0~0~5.03~0~0~0~0~0~0";`;
@@ -45,40 +47,127 @@ describe('parseTencentResponse', () => {
 });
 
 describe('parseMinuteResponse', () => {
-  const raw = `min_data="\\n\\
-date:211008\\n\\
-0930 1822.42 2098\\n\\
-0931 1811.05 2644\\n\\
-0932 1817.01 3174\\n\\
-1130 1818.00 100\\n\\
-1301 1820.00 200\\n\\
-1500 1830.50 300\\n\\
-";`;
+  const SYM = 'sz000001';
+  const raw = JSON.stringify({
+    code: 0,
+    data: {
+      [SYM]: {
+        data: {
+          date: '20260805',
+          data: [
+            '0930 1822.42 2098 100.00',
+            '0931 1811.05 2644 200.00',
+            '0932 1817.01 3174 300.00',
+            '1130 1818.00 100 400.00',
+            '1301 1820.00 200 500.00',
+            '1500 1830.50 300 600.00',
+          ],
+        },
+      },
+    },
+  });
 
   it('parses date and points', () => {
-    const d = parseMinuteResponse(raw);
-    expect(d.date).toBe('211008');
+    const d = parseMinuteResponse(raw, SYM);
+    expect(d.date).toBe('20260805');
     expect(d.points).toHaveLength(6);
     expect(d.points[0]).toEqual({ time: '0930', price: 1822.42 });
     expect(d.points[5]).toEqual({ time: '1500', price: 1830.5 });
   });
 
-  it('ignores malformed lines', () => {
-    const d = parseMinuteResponse('garbage\\ndate:123456\\nabc 1 2\\n');
-    expect(d.date).toBe('123456');
+  it('ignores malformed rows', () => {
+    const d = parseMinuteResponse(
+      JSON.stringify({
+        data: {
+          [SYM]: {
+            data: { date: '20260805', data: ['abc 1 2', 'xyz 3 4'] },
+          },
+        },
+      }),
+      SYM,
+    );
+    expect(d.date).toBe('20260805');
+    expect(d.points).toHaveLength(0);
+  });
+
+  it('returns empty for missing symbol', () => {
+    const d = parseMinuteResponse(raw, 'sh999999');
+    expect(d.date).toBe('');
+    expect(d.points).toHaveLength(0);
+  });
+
+  it('returns empty for invalid json', () => {
+    const d = parseMinuteResponse('not json', SYM);
+    expect(d.date).toBe('');
     expect(d.points).toHaveLength(0);
   });
 
   it('builds spark with up color when last > prevClose', () => {
-    const d = parseMinuteResponse(raw);
+    const d = parseMinuteResponse(raw, SYM);
     const s = buildSpark(d, 1822.42);
     expect(s).not.toBeNull();
     expect(s!.color).toBe('up');
     expect(s!.line).toContain(',');
   });
 
+  it('anchors curve start at market open (0930)', () => {
+    const d = parseMinuteResponse(raw, SYM);
+    const s = buildSpark(d, 1822.42);
+    expect(s!.line.split(' ')[0].split(',')[0]).toBe('1.0');
+  });
+
+  it('scales curve width to elapsed session time', () => {
+    const body = (times: string[]) =>
+      JSON.stringify({
+        data: {
+          [SYM]: {
+            data: {
+              date: '20260805',
+              data: times.map((t) => `${t} 10.00 1 1.00`),
+            },
+          },
+        },
+      });
+    const open = buildSpark(parseMinuteResponse(body(['0930', '0931']), SYM), 10);
+    const morning = buildSpark(
+      parseMinuteResponse(body(['0930', '1130']), SYM),
+      10,
+    );
+    const midday = buildSpark(
+      parseMinuteResponse(body(['0930', '1300']), SYM),
+      10,
+    );
+    const close = buildSpark(
+      parseMinuteResponse(body(['0930', '1500']), SYM),
+      10,
+    );
+    const xEnd = (s: SparkData) => {
+      const parts = s.line.split(' ');
+      return Number(parts[parts.length - 1].split(',')[0]);
+    };
+    expect(xEnd(open!)).toBeLessThan(xEnd(morning!));
+    expect(xEnd(morning!)).toBeCloseTo(50, 0);
+    expect(xEnd(midday!)).toBeCloseTo(50, 0);
+    expect(xEnd(close!)).toBeCloseTo(99, 0);
+  });
+
   it('returns null for insufficient points', () => {
     const d = { date: '211008', points: [{ time: '0930', price: 10 }] };
     expect(buildSpark(d, 10)).toBeNull();
+  });
+});
+
+describe('sessionMinute', () => {
+  it('maps open, close and lunch break', () => {
+    expect(sessionMinute('0930')).toBe(0);
+    expect(sessionMinute('1130')).toBe(120);
+    expect(sessionMinute('1300')).toBe(120);
+    expect(sessionMinute('1500')).toBe(240);
+  });
+
+  it('clamps before open and after close', () => {
+    expect(sessionMinute('0900')).toBe(0);
+    expect(sessionMinute('0905')).toBe(0);
+    expect(sessionMinute('1530')).toBe(240);
   });
 });
