@@ -64,6 +64,7 @@ export interface MinuteData {
 export interface SparkData {
   color: 'up' | 'down' | 'flat';
   line: string;
+  baseY: number;
 }
 
 const MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=';
@@ -137,7 +138,7 @@ export function buildSpark(data: MinuteData, prevClose: number): SparkData | nul
   const x = (p: MinutePoint) => SPARK_PAD + (sessionMinute(p.time) / SESSION_TOTAL) * (SPARK_WIDTH - 2 * SPARK_PAD);
   const y = (p: number) => SPARK_HEIGHT - SPARK_PAD - ((p - min) / (max - min)) * (SPARK_HEIGHT - 2 * SPARK_PAD);
   const line = sampled.map((p) => `${x(p).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
-  return { color, line };
+  return { color, line, baseY: y(prevClose) };
 }
 
 const SESSION_TOTAL = 240;

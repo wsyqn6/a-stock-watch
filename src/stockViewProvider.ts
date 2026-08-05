@@ -91,14 +91,25 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async refreshMinute(): Promise<void> {
-    if (!this.view?.visible || !isTradingTime() || this.refreshingMinute) {
+    if (!this.view?.visible || this.refreshingMinute) {
+      return;
+    }
+    const symbols = this.store.getAll();
+    if (!isTradingTime() && symbols.length > 0 && symbols.every((s) => this.sparks.has(s))) {
       return;
     }
     this.refreshingMinute = true;
     try {
-      const symbols = this.store.getAll();
-      const prevClose = (q: StockQuote) => q.prevClose;
-      const pcMap = new Map(this.quotes.map((q) => [q.symbol, prevClose(q)]));
+      const pcMap = new Map(this.quotes.map((q) => [q.symbol, q.prevClose]));
+      if (symbols.some((s) => !pcMap.has(s))) {
+        try {
+          for (const q of await fetchQuotes(symbols)) {
+            pcMap.set(q.symbol, q.prevClose);
+          }
+        } catch {
+          // keep whatever prevClose we already have
+        }
+      }
       await Promise.all(
         symbols.map(async (sym) => {
           try {
@@ -210,14 +221,15 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
 .handle:active{cursor:grabbing}
 .bar{width:16px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;margin-right:6px}
-.left{flex:0 0 auto;max-width:45%;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
+.left{flex:0 0 90px;width:90px;max-width:90px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
 .right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
 .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
-.price{font-weight:600;font-variant-numeric:tabular-nums}
-.pct{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.price{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
+.pct{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
 .spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px}
 .spark polyline{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.spark line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:3 2;opacity:.45;vector-effect:non-scaling-stroke}
 .spark.up polyline{stroke:${up}}
 .spark.down polyline{stroke:${down}}
 .spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
@@ -255,11 +267,25 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
       const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
       return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<span class="bar '+it.cls+'">'+it.bar+'</span><div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div><button class="del" title="删除">✕</button></div>';
     }).join('');
+    fitNames();
     bind();
   }
+  function fitNames(){
+    app.querySelectorAll('.name').forEach(el=>{
+      const maxW=el.parentNode.clientWidth;
+      let fs=13;
+      el.style.fontSize=fs+'px';
+      while(fs>9&&el.scrollWidth>maxW){fs-=0.5;el.style.fontSize=fs+'px';}
+    });
+  }
   function spark(it){
-    if(!it.spark||!it.spark.line)return '';
-    return '<svg class="spark '+it.spark.color+'" viewBox="0 0 100 18" preserveAspectRatio="none"><polyline points="'+it.spark.line+'"></polyline></svg>';
+    const s=it.spark;
+    const color=s&&s.line?s.color:'flat';
+    let inner='';
+    if(s&&s.line){
+      inner='<line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
+    }
+    return '<svg class="spark '+color+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+inner+'</svg>';
   }
   function bind(){
     const rows=Array.from(app.querySelectorAll('.row'));

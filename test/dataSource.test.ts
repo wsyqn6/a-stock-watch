@@ -117,6 +117,14 @@ describe('parseMinuteResponse', () => {
     expect(s!.line.split(' ')[0].split(',')[0]).toBe('1.0');
   });
 
+  it('adds baseline at prevClose y', () => {
+    const d = parseMinuteResponse(raw, SYM);
+    const s = buildSpark(d, 1822.42);
+    expect(s).not.toBeNull();
+    expect(s!.baseY).toBeGreaterThanOrEqual(1);
+    expect(s!.baseY).toBeLessThanOrEqual(17);
+  });
+
   it('scales curve width to elapsed session time', () => {
     const body = (times: string[]) =>
       JSON.stringify({
