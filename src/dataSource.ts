@@ -8,6 +8,7 @@ export interface StockQuote {
   change: number;
   changePct: number;
   trend: 'up' | 'down' | 'flat';
+  date: string;
 }
 
 const TENCENT_URL = 'https://qt.gtimg.cn/q=';
@@ -23,7 +24,9 @@ export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
   }
   const buf = new Uint8Array(await res.arrayBuffer());
   const text = new TextDecoder('gb18030').decode(buf);
-  return parseTencentResponse(text);
+  const quotes = parseTencentResponse(text);
+  noteMarketDate(quotes.map((q) => q.date));
+  return quotes;
 }
 
 export function parseTencentResponse(text: string): StockQuote[] {
@@ -46,7 +49,8 @@ export function parseTencentResponse(text: string): StockQuote[] {
     }
     const trend: StockQuote['trend'] =
       changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat';
-    quotes.push({ symbol, name, price, prevClose, change, changePct, trend });
+    const date = /^\d{8}/.exec(fields[30])?.[0] ?? '';
+    quotes.push({ symbol, name, price, prevClose, change, changePct, trend, date });
   }
   return quotes;
 }
@@ -149,6 +153,20 @@ const AFTERNOON_START = 780; // 13:00
 const AFTERNOON_END = 900; // 15:00
 const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 
+let closedDay = '';
+
+export function beijingDateStr(now: Date = new Date()): string {
+  return new Date(now.getTime() + BEIJING_OFFSET_MS)
+    .toISOString()
+    .slice(0, 10)
+    .replace(/-/g, '');
+}
+
+export function noteMarketDate(dates: string[], now: Date = new Date()): void {
+  const today = beijingDateStr(now);
+  closedDay = dates.some((d) => d === today) || dates.length === 0 ? '' : today;
+}
+
 export function sessionMinute(time: string): number {
   const hh = Number(time.slice(0, 2));
   const mm = Number(time.slice(2));
@@ -161,9 +179,16 @@ export function sessionMinute(time: string): number {
 }
 
 export function isTradingTime(now: Date = new Date()): boolean {
+  const today = beijingDateStr(now);
+  if (closedDay !== '' && closedDay !== today) {
+    closedDay = '';
+  }
   const bj = new Date(now.getTime() + BEIJING_OFFSET_MS);
   const day = bj.getUTCDay();
   if (day === 0 || day === 6) {
+    return false;
+  }
+  if (closedDay === today) {
     return false;
   }
   const mins = bj.getUTCHours() * 60 + bj.getUTCMinutes();

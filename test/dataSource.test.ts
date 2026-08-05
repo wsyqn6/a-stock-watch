@@ -5,6 +5,8 @@ import {
   buildSpark,
   sessionMinute,
   isTradingTime,
+  beijingDateStr,
+  noteMarketDate,
   SparkData,
 } from '../src/dataSource';
 
@@ -44,6 +46,26 @@ describe('parseTencentResponse', () => {
   it('skips truncated field rows', () => {
     const q = parseTencentResponse('v_sh12345="1~短~600519";');
     expect(q).toHaveLength(0);
+  });
+
+  it('extracts quote date from the timestamp field', () => {
+    const f = Array(33).fill('0');
+    f[0] = '1';
+    f[1] = 'A';
+    f[2] = 'sh000001';
+    f[3] = '10.00';
+    f[4] = '10.00';
+    f[5] = '10.00';
+    f[30] = '20260805161202';
+    f[31] = '0.00';
+    f[32] = '0.00';
+    const q = parseTencentResponse(`v_sh000001="${f.join('~')}";`);
+    expect(q[0].date).toBe('20260805');
+  });
+
+  it('leaves date empty when timestamp is missing', () => {
+    const q = parseTencentResponse(SAMPLE);
+    expect(q[0].date).toBe('');
   });
 });
 
@@ -201,5 +223,38 @@ describe('isTradingTime', () => {
     const sun = new Date(Date.UTC(2026, 7, 2, 2, 0)); // beijing sun 10:00
     expect(isTradingTime(sat)).toBe(false);
     expect(isTradingTime(sun)).toBe(false);
+  });
+});
+
+describe('beijingDateStr', () => {
+  it('formats a beijing wall date as YYYYMMDD', () => {
+    const now = new Date(Date.UTC(2026, 7, 4, 22, 0)); // beijing 2026-08-05 06:00
+    expect(beijingDateStr(now)).toBe('20260805');
+  });
+});
+
+describe('noteMarketDate', () => {
+  // beijing 2026-08-05 is Wednesday; wall time = UTC + 8h
+  const bj = (h: number, m: number) => new Date(Date.UTC(2026, 7, 5, h - 8, m));
+
+  it('flags a closed day when no quote date is today', () => {
+    noteMarketDate(['20260803', '20260804'], bj(10, 0));
+    expect(isTradingTime(bj(10, 0))).toBe(false);
+  });
+
+  it('recovers when a today-dated quote arrives', () => {
+    noteMarketDate(['20260805'], bj(10, 0));
+    expect(isTradingTime(bj(10, 0))).toBe(true);
+  });
+
+  it('resets a stale closed-day flag on a new day', () => {
+    noteMarketDate(['20260803'], bj(10, 0)); // closedDay = 20260805
+    const next = new Date(Date.UTC(2026, 7, 6, 2, 0)); // beijing thu 10:00
+    expect(isTradingTime(next)).toBe(true);
+  });
+
+  it('stays trading when no quote date is parsed', () => {
+    noteMarketDate([], bj(10, 0));
+    expect(isTradingTime(bj(10, 0))).toBe(true);
   });
 });
