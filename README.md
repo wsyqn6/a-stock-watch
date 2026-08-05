@@ -1,4 +1,4 @@
-# A-Stock Watch（A股自选）
+# A股行情速览
 
 ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 ![VS Code](https://img.shields.io/badge/vscode-%5E1.90.0-blue)
