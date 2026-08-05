@@ -18,11 +18,10 @@ export class RefreshManager implements vscode.Disposable {
   ) {}
 
   start(): void {
-    this.view.onDidChangeVisibility(() => this.onVisibility());
-    this.onVisibility();
+    this.handleVisibility();
   }
 
-  private onVisibility(): void {
+  handleVisibility(): void {
     if (this.view.visible) {
       this.updateTimer();
       void this.refresh();
