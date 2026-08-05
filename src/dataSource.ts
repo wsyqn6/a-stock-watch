@@ -77,7 +77,13 @@ const SPARK_HEIGHT = 18;
 const SPARK_PAD = 1;
 const SAMPLE_STEP = 5;
 
-const minuteCache = new Map<string, MinuteData>();
+const minuteCache = new Map<string, { data: MinuteData; ts: number }>();
+const MINUTE_TTL_MS = 60_000;
+
+export interface MinuteResult {
+  data: MinuteData;
+  fresh: boolean;
+}
 
 export async function fetchMinute(symbol: string): Promise<MinuteData> {
   const res = await fetchWithTimeout(MINUTE_URL + encodeURIComponent(symbol));
@@ -108,20 +114,21 @@ export function parseMinuteResponse(text: string, symbol: string): MinuteData {
   return { date, points };
 }
 
-export async function getMinuteCached(symbol: string): Promise<MinuteData> {
-  const cached = minuteCache.get(symbol);
-  if (cached) {
-    try {
-      const fresh = await fetchMinute(symbol);
-      minuteCache.set(symbol, fresh);
-      return fresh;
-    } catch {
-      return cached;
-    }
+export async function getMinuteCached(symbol: string): Promise<MinuteResult> {
+  const hit = minuteCache.get(symbol);
+  if (hit && Date.now() - hit.ts < MINUTE_TTL_MS) {
+    return { data: hit.data, fresh: false };
   }
-  const data = await fetchMinute(symbol);
-  minuteCache.set(symbol, data);
-  return data;
+  try {
+    const data = await fetchMinute(symbol);
+    minuteCache.set(symbol, { data, ts: Date.now() });
+    return { data, fresh: true };
+  } catch (err) {
+    if (hit) {
+      return { data: hit.data, fresh: false };
+    }
+    throw err;
+  }
 }
 
 export function buildSpark(data: MinuteData, prevClose: number): SparkData | null {
@@ -205,9 +212,4 @@ function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {
     out.push(last);
   }
   return out;
-}
-
-export function formatPrice(quote: StockQuote): string {
-  const pct = (quote.changePct >= 0 ? '+' : '') + quote.changePct.toFixed(2) + '%';
-  return `${quote.price.toFixed(2)} ${pct}`;
 }

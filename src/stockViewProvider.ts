@@ -27,13 +27,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private quotes: StockQuote[] = [];
   private sparks = new Map<string, SparkData | null>();
   private error: string | null = null;
-  private dark: boolean;
+  private warn: string | null = null;
   private sortMode: SortMode = 'manual';
   private editMode = false;
 
-  constructor(private readonly store: Store) {
-    this.dark = this.isDark();
-  }
+  constructor(private readonly store: Store) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
@@ -64,12 +62,14 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         this.push();
       }
     });
+    this.manager?.dispose();
     this.manager = new RefreshManager(this.store, this, webviewView);
     this.manager.start();
     webviewView.onDidChangeVisibility(() => this.onVisibility());
   }
 
   private onVisibility(): void {
+    this.manager?.handleVisibility();
     if (this.view?.visible) {
       this.startMinuteTimer();
       void this.refreshMinute();
@@ -110,24 +110,32 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
           // keep whatever prevClose we already have
         }
       }
+      let dirty = false;
       await Promise.all(
         symbols.map(async (sym) => {
           try {
-            const minute = await getMinuteCached(sym);
+            const { data, fresh } = await getMinuteCached(sym);
             const pc = pcMap.get(sym);
-            this.sparks.set(
-              sym,
-              pc !== undefined ? buildSpark(minute, pc) : null,
-            );
+            const spark = pc !== undefined ? buildSpark(data, pc) : null;
+            if (fresh) {
+              this.sparks.set(sym, spark);
+              dirty = true;
+            } else if (!this.sparks.has(sym)) {
+              this.sparks.set(sym, spark);
+              dirty = true;
+            }
           } catch {
             this.sparks.set(sym, null);
+            dirty = true;
           }
         }),
       );
+      if (dirty) {
+        this.push();
+      }
     } finally {
       this.refreshingMinute = false;
     }
-    this.push();
   }
 
   setSortMode(mode: SortMode): void {
@@ -166,6 +174,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (symbols.length === 0) {
       this.quotes = [];
       this.error = null;
+      this.warn = null;
     } else {
       try {
         this.quotes = await fetchQuotes(symbols);
@@ -173,6 +182,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       } catch (err) {
         this.quotes = [];
         this.error = err instanceof Error ? `行情错误: ${err.message}` : '行情错误';
+      }
+      if (this.error === null && this.quotes.length > 0) {
+        const got = new Set(this.quotes.map((q) => q.symbol));
+        const missing = symbols.filter((s) => !got.has(s));
+        this.warn = missing.length > 0 ? `未获取到行情：${missing.join(', ')}` : null;
       }
     }
     this.push();
@@ -200,19 +214,19 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const items = this.ordered().map((q) => toViewItem(q, this.sparks.get(q.symbol) ?? null));
-    void this.view.webview.postMessage({ type: 'quotes', items, error: this.error });
+    void this.view.webview.postMessage({ type: 'quotes', items, error: this.error, warn: this.warn });
   }
 
   private html(): string {
     const nonce = getNonce();
-    const up = this.dark ? '#E15241' : '#C73E2E';
-    const down = this.dark ? '#2EA46E' : '#2F8F5B';
     return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
+:root{--up:#E15241;--down:#2EA46E}
+@media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:8px 4px}
 .row{display:flex;align-items:center;padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border)}
@@ -230,16 +244,17 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px}
 .spark polyline{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .spark line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:3 2;opacity:.45;vector-effect:non-scaling-stroke}
-.spark.up polyline{stroke:${up}}
-.spark.down polyline{stroke:${down}}
+.spark.up polyline{stroke:var(--up)}
+.spark.down polyline{stroke:var(--down)}
 .spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
 .del{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0;transition:max-width .15s ease,opacity .15s ease}
 body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .del:hover{color:var(--vscode-errorForeground)}
-.up{color:${up}}
-.down{color:${down}}
+.up{color:var(--up)}
+.down{color:var(--down)}
 .flat{color:var(--vscode-descriptionForeground)}
 .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
+.warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
 </style>
 </head>
 <body>
@@ -258,11 +273,12 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
     if(m.type!=='quotes')return;
     if(m.error){app.innerHTML='<div class="msg">'+m.error+'</div>';return;}
     if(!m.items||!m.items.length){cur=[];app.innerHTML='<div class="msg">暂无自选股，点击 + 添加</div>';return;}
-    render(m.items);
+    render(m.items,m.warn);
   });
-  function render(items){
+  function render(items,warn){
     cur=items;
-    app.innerHTML=items.map((it,i)=>{
+    const banner=warn?'<div class="warn">'+warn+'</div>':'';
+    app.innerHTML=banner+items.map((it,i)=>{
       const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
       return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<span class="bar '+it.cls+'">'+it.bar+'</span><div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div><button class="del" title="删除">✕</button></div>';
     }).join('');
@@ -316,11 +332,6 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 </script>
 </body>
 </html>`;
-  }
-
-  private isDark(): boolean {
-    const kind = vscode.window.activeColorTheme.kind;
-    return kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
   }
 }
 
