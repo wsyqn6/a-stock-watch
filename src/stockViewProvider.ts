@@ -234,7 +234,6 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .spark.down polyline{stroke:${down}}
 .spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
 .del{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0;transition:max-width .15s ease,opacity .15s ease}
-.row:hover .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .del:hover{color:var(--vscode-errorForeground)}
 .up{color:${up}}
