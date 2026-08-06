@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Store } from './store';
 import { StockViewProvider } from './stockViewProvider';
-import { searchStock, SearchResult } from './search';
+import { searchStock, searchEastmoney, SearchResult } from './search';
 
 interface PickItem extends vscode.QuickPickItem {
   result?: SearchResult;
@@ -43,16 +43,22 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         let found: SearchResult[] = [];
         try {
-          const results = await searchStock(value);
-          if (seq !== searchSeq) {
-            return;
-          }
-          found = results;
+          found = await searchStock(value);
         } catch {
+          found = [];
+        }
+        if (seq !== searchSeq) {
+          return;
+        }
+        if (found.length === 0) {
+          try {
+            found = await searchEastmoney(value);
+          } catch {
+            found = [];
+          }
           if (seq !== searchSeq) {
             return;
           }
-          found = [];
         }
         qp.items = found.map((r) => ({
           label: `${r.name}  ${r.code}`,
