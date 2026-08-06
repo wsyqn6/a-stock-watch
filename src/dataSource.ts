@@ -68,6 +68,7 @@ export interface MinuteData {
 export interface SparkData {
   color: 'up' | 'down' | 'flat';
   line: string;
+  area: string;
   baseY: number;
 }
 
@@ -148,8 +149,14 @@ export function buildSpark(data: MinuteData, prevClose: number): SparkData | nul
     last > prevClose ? 'up' : last < prevClose ? 'down' : 'flat';
   const x = (p: MinutePoint) => SPARK_PAD + (sessionMinute(p.time) / SESSION_TOTAL) * (SPARK_WIDTH - 2 * SPARK_PAD);
   const y = (p: number) => SPARK_HEIGHT - SPARK_PAD - ((p - min) / (max - min)) * (SPARK_HEIGHT - 2 * SPARK_PAD);
-  const line = sampled.map((p) => `${x(p).toFixed(1)},${y(p.price).toFixed(1)}`).join(' ');
-  return { color, line, baseY: y(prevClose) };
+  const pts = sampled.map((p) => `${x(p).toFixed(1)},${y(p.price).toFixed(1)}`);
+  const line = pts.join(' ');
+  const baseY = y(prevClose);
+  const bx = pts[0].split(',')[0];
+  const ex = pts[pts.length - 1].split(',')[0];
+  const floorY = Math.max(...sampled.map((p) => y(p.price))).toFixed(1);
+  const area = `M${pts.join(' L')} L${ex} ${floorY} L${bx} ${floorY} Z`;
+  return { color, line, area, baseY };
 }
 
 const SESSION_TOTAL = 240;

@@ -229,7 +229,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 @media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:8px 4px}
-.row{display:flex;align-items:center;padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border)}
+.row{display:flex;align-items:center;padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
+.row:hover{background:var(--vscode-list-hoverBackground)}
 .row.drag{opacity:.4}
 .row.drop{border-top:2px solid var(--vscode-focusBorder)}
 .handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
@@ -241,8 +242,14 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
 .price{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
 .pct{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
-.spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px}
-.spark polyline{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px;transition:opacity .12s ease}
+.row:hover .spark polyline:not(.glow){stroke-width:1.6}
+@media (prefers-reduced-motion:reduce){.row,.spark{transition:none}}
+.spark polyline{fill:none;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.spark path.area{fill:none;opacity:.8}
+.spark.up path.area{fill:url(#gUp)}
+.spark.down path.area{fill:url(#gDown)}
+.row:hover .spark path.area{opacity:1}
 .spark line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:3 2;opacity:.45;vector-effect:non-scaling-stroke}
 .spark.up polyline{stroke:var(--up)}
 .spark.down polyline{stroke:var(--down)}
@@ -258,6 +265,7 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 </style>
 </head>
 <body>
+<svg width="0" height="0" aria-hidden="true"><defs><linearGradient id="gUp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--up);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--up);stop-opacity:0"/></linearGradient><linearGradient id="gDown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--down);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--down);stop-opacity:0"/></linearGradient></defs></svg>
 <div id="app"><div class="msg">加载中…</div></div>
 <script nonce="${nonce}">
 (function(){
@@ -298,7 +306,7 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
     const color=s&&s.line?s.color:'flat';
     let inner='';
     if(s&&s.line){
-      inner='<line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
+      inner='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
     }
     return '<svg class="spark '+color+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+inner+'</svg>';
   }
