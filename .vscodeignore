@@ -6,5 +6,6 @@ tsconfig.json
 .gitignore
 .vscodeignore
 .vscode/
+.github/
 bun.lock
 **/*.map
