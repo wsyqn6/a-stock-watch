@@ -10,8 +10,8 @@ export interface QuoteViewItem {
   price: string;
   changePct: string;
   cls: 'up' | 'down' | 'flat';
-  bar: string;
   spark: SparkData | null;
+  inBar: boolean;
 }
 
 type SortMode = 'manual' | 'code' | 'name' | 'pctDesc' | 'pctAsc';
@@ -31,7 +31,10 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private sortMode: SortMode = 'manual';
   private editMode = false;
 
-  constructor(private readonly store: Store) {}
+  constructor(
+    private readonly store: Store,
+    private readonly onStatusBarChanged?: () => void,
+  ) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
@@ -51,6 +54,18 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         if (typeof symbol === 'string' && this.store.remove(symbol)) {
           this.notifyChanged();
         }
+      } else if (type === 'toggleStatusBar') {
+        const symbol = (msg as { symbol?: unknown }).symbol;
+        if (typeof symbol === 'string' && this.store.statusBarHas(symbol)) {
+          this.store.statusBarToggle(symbol);
+          this.push();
+          this.onStatusBarChanged?.();
+        } else if (typeof symbol === 'string' && this.store.statusBarToggle(symbol)) {
+          this.push();
+          this.onStatusBarChanged?.();
+        } else if (typeof symbol === 'string' && this.store.getStatusBar().length >= Store.STATUS_BAR_MAX) {
+          void vscode.window.showInformationMessage(`状态栏最多显示 ${Store.STATUS_BAR_MAX} 只股票`);
+        }
       } else if (type === 'reorder') {
         const symbols = (msg as { symbols?: unknown }).symbols;
         if (Array.isArray(symbols)) {
@@ -63,7 +78,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       }
     });
     this.manager?.dispose();
-    this.manager = new RefreshManager(this.store, this, webviewView);
+    this.manager = new RefreshManager(this, webviewView);
     this.manager.start();
     webviewView.onDidChangeVisibility(() => this.onVisibility());
   }
@@ -161,6 +176,10 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     void this.manager?.refresh();
   }
 
+  getSymbols(): string[] {
+    return this.store.getAll();
+  }
+
   refreshNow(): Promise<void> {
     return this.manager?.refresh() ?? Promise.resolve();
   }
@@ -213,7 +232,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (!this.view || !this.view.visible) {
       return;
     }
-    const items = this.ordered().map((q) => toViewItem(q, this.sparks.get(q.symbol) ?? null));
+    const items = this.ordered().map((q) =>
+      toViewItem(q, this.sparks.get(q.symbol) ?? null, this.store.statusBarHas(q.symbol)),
+    );
     void this.view.webview.postMessage({ type: 'quotes', items, error: this.error, warn: this.warn });
   }
 
@@ -228,14 +249,13 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 :root{--up:#E15241;--down:#2EA46E}
 @media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:8px 4px}
-.row{display:flex;align-items:center;padding:4px 6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
+body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px}
+.row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
 .row:hover{background:var(--vscode-list-hoverBackground)}
 .row.drag{opacity:.4}
 .row.drop{border-top:2px solid var(--vscode-focusBorder)}
 .handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
 .handle:active{cursor:grabbing}
-.bar{width:16px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;margin-right:6px}
 .left{flex:0 0 90px;width:90px;max-width:90px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
 .right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
 .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -257,6 +277,11 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .del{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0;transition:max-width .15s ease,opacity .15s ease}
 body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .del:hover{color:var(--vscode-errorForeground)}
+.pin{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;padding:0;line-height:0;transition:max-width .15s ease,opacity .15s ease}
+body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
+.pin svg{vertical-align:middle;display:block}
+.pin.on{color:#d4a017}
+.pin:hover{color:var(--vscode-textLink-foreground)}
 .up{color:var(--up)}
 .down{color:var(--down)}
 .flat{color:var(--vscode-descriptionForeground)}
@@ -271,6 +296,7 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 (function(){
   const app=document.getElementById('app');
   const api=acquireVsCodeApi();
+  const PIN_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5z" fill="currentColor"></path><circle cx="8" cy="6" r="1.7" fill="var(--vscode-editor-background)"></circle></svg>';
   api.postMessage({type:'ready'});
   let editing=false;
   let cur=[];
@@ -288,7 +314,8 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
     const banner=warn?'<div class="warn">'+warn+'</div>':'';
     app.innerHTML=banner+items.map((it,i)=>{
       const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
-      return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<span class="bar '+it.cls+'">'+it.bar+'</span><div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div><button class="del" title="删除">✕</button></div>';
+      const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
+      return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+'<button class="del" title="删除">✕</button></div>';
     }).join('');
     fitNames();
     bind();
@@ -315,6 +342,8 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
     rows.forEach((row,i)=>{
       const del=row.querySelector('.del');
       del.addEventListener('click',()=>api.postMessage({type:'remove',symbol:cur[i].sym}));
+      const pin=row.querySelector('.pin');
+      if(pin)pin.addEventListener('click',()=>api.postMessage({type:'toggleStatusBar',symbol:cur[i].sym}));
     });
     if(!editing)return;
     const order=rows.map(r=>+r.dataset.i);
@@ -343,7 +372,7 @@ body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
   }
 }
 
-function toViewItem(q: StockQuote, spark: SparkData | null): QuoteViewItem {
+function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean): QuoteViewItem {
   const cls: QuoteViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
   return {
     sym: q.symbol,
@@ -352,35 +381,9 @@ function toViewItem(q: StockQuote, spark: SparkData | null): QuoteViewItem {
     price: q.price.toFixed(2),
     changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
     cls,
-    bar: barFor(q.changePct),
     spark,
+    inBar,
   };
-}
-
-function barFor(pct: number): string {
-  if (pct >= 9.9) return rocketGlyph(true);
-  if (pct >= 3) return arrowGlyph('M6 4 V14 M2 8 L6 4 L10 8', '大涨');
-  if (pct > 0) return arrowGlyph('M6 7 V14 M2 11 L6 7 L10 11', '小涨');
-  if (pct === 0) return arrowGlyph('M2 8 H10', '平');
-  if (pct > -3) return arrowGlyph('M6 9 V2 M2 5 L6 9 L10 5', '小跌');
-  if (pct > -9.9) return arrowGlyph('M6 12 V2 M2 8 L6 12 L10 8', '大跌');
-  return rocketGlyph(false);
-}
-
-function arrowGlyph(path: string, title: string): string {
-  return '<svg class="bar-glyph" viewBox="0 0 12 16" width="12" height="16" aria-hidden="true" focusable="false"><title>'+title+'</title><path d="'+path+'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-}
-
-function rocketGlyph(up: boolean): string {
-  const title = up ? '涨停' : '跌停';
-  const body = up
-    ? 'M6 1 C5.4 2.8,4.4 5.5,4 8.8 C4 9.8,8 9.8,8 8.8 C7.6 5.5,6.6 2.8,6 1 Z'
-    : 'M6 15 C5.4 13.2,4.4 10.5,4 7.2 C4 6.2,8 6.2,8 7.2 C7.6 10.5,6.6 13.2,6 15 Z';
-  const fins = up ? 'M4 8 L3 12 M8 8 L9 12' : 'M4 8 L3 4 M8 8 L9 4';
-  const flame = up ? 'M4.9 11 L6 13.6 L7.1 11' : 'M4.9 5 L6 2.4 L7.1 5';
-  const winCy = up ? 4 : 12;
-  const stroke = ' fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
-  return '<svg class="bar-glyph" viewBox="0 0 12 16" width="12" height="16" aria-hidden="true" focusable="false"><title>'+title+'</title><path d="'+body+'"'+stroke+'/><circle cx="6" cy="'+winCy+'" r="1.1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="'+fins+'"'+stroke+'/><path d="'+flame+'"'+stroke+'/></svg>';
 }
 
 function getNonce(): string {

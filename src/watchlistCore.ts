@@ -50,3 +50,7 @@ export class WatchlistCore {
     this.onSave(this.getAll());
   }
 }
+
+export function reconcileSubset(master: string[], subset: string[]): string[] {
+  return subset.filter((s) => master.includes(s));
+}

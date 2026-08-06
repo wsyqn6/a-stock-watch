@@ -1,16 +1,24 @@
 import * as vscode from 'vscode';
-import { WatchlistCore } from './watchlistCore';
+import { WatchlistCore, reconcileSubset } from './watchlistCore';
 
 const CONFIG_SECTION = 'aStockWatch';
 const WATCHLIST_KEY = 'watchlist';
+const STATUS_BAR_KEY = 'statusBar';
 const LEGACY_KEY = 'aStockWatch.list';
 const DEFAULT_SYMBOLS = ['sh000001', 'sz399001'];
 
 export class Store implements vscode.Disposable {
-  private core: WatchlistCore;
+  static readonly STATUS_BAR_MAX = 3;
+
+  private watchlist: WatchlistCore;
+  private statusBar: WatchlistCore;
 
   constructor(initial?: string[]) {
-    this.core = new WatchlistCore(initial ?? this.read(), (s) => this.persist(s));
+    this.watchlist = new WatchlistCore(
+      initial ?? this.read(WATCHLIST_KEY, DEFAULT_SYMBOLS),
+      (s) => this.persist(WATCHLIST_KEY, s),
+    );
+    this.statusBar = this.buildStatusBar(this.watchlist.getAll());
   }
 
   static migrateLegacy(context: vscode.ExtensionContext): Store {
@@ -39,44 +47,82 @@ export class Store implements vscode.Disposable {
     );
   }
 
-  private read(): string[] {
+  private read(key: string, fallback: string[]): string[] {
     const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-    const inspected = config.inspect<string[]>(WATCHLIST_KEY);
+    const inspected = config.inspect<string[]>(key);
     if (!Store.configSet(inspected)) {
-      return [...DEFAULT_SYMBOLS];
+      return [...fallback];
     }
-    const raw: unknown = config.get<string[]>(WATCHLIST_KEY, []);
+    const raw: unknown = config.get<string[]>(key, []);
     return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
   }
 
+  private buildStatusBar(master: string[]): WatchlistCore {
+    const raw = this.read(STATUS_BAR_KEY, []);
+    const valid = reconcileSubset(master, raw).slice(0, Store.STATUS_BAR_MAX);
+    if (valid.join('\n') !== raw.join('\n')) {
+      this.persist(STATUS_BAR_KEY, valid);
+    }
+    return new WatchlistCore(valid, (s) => this.persist(STATUS_BAR_KEY, s));
+  }
+
   reload(): void {
-    this.core = new WatchlistCore(this.read(), (s) => this.persist(s));
+    this.watchlist = new WatchlistCore(
+      this.read(WATCHLIST_KEY, DEFAULT_SYMBOLS),
+      (s) => this.persist(WATCHLIST_KEY, s),
+    );
+    this.statusBar = this.buildStatusBar(this.watchlist.getAll());
   }
 
   getAll(): string[] {
-    return this.core.getAll();
+    return this.watchlist.getAll();
   }
 
   has(symbol: string): boolean {
-    return this.core.has(symbol);
+    return this.watchlist.has(symbol);
   }
 
   add(symbol: string): boolean {
-    return this.core.add(symbol);
+    return this.watchlist.add(symbol);
   }
 
   remove(symbol: string): boolean {
-    return this.core.remove(symbol);
+    const ok = this.watchlist.remove(symbol);
+    if (ok) {
+      this.statusBar.remove(symbol);
+    }
+    return ok;
   }
 
   reorder(symbols: string[]): void {
-    this.core.reorder(symbols);
+    this.watchlist.reorder(symbols);
   }
 
-  private persist(symbols: string[]): void {
+  getStatusBar(): string[] {
+    return this.statusBar.getAll();
+  }
+
+  statusBarHas(symbol: string): boolean {
+    return this.statusBar.has(symbol);
+  }
+
+  statusBarToggle(symbol: string): boolean {
+    if (this.statusBar.has(symbol)) {
+      return this.statusBar.remove(symbol);
+    }
+    if (!this.watchlist.has(symbol)) {
+      return false;
+    }
+    if (this.statusBar.getAll().length >= Store.STATUS_BAR_MAX) {
+      return false;
+    }
+    return this.statusBar.add(symbol);
+  }
+
+  private persist(key: string, symbols: string[]): void {
     void vscode.workspace
       .getConfiguration(CONFIG_SECTION)
-      .update(WATCHLIST_KEY, symbols, vscode.ConfigurationTarget.Global);
+      .update(key, symbols, vscode.ConfigurationTarget.Global);
   }
 
   dispose(): void {}

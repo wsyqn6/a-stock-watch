@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { Store } from './store';
 import { isTradingTime } from './dataSource';
 
 export interface QuoteSink {
+  getSymbols(): string[];
   refresh(symbols: string[]): Promise<void>;
 }
 
@@ -12,9 +12,8 @@ export class RefreshManager implements vscode.Disposable {
   private refreshing = false;
 
   constructor(
-    private readonly store: Store,
     private readonly sink: QuoteSink,
-    private readonly view: vscode.WebviewView,
+    private readonly view?: vscode.WebviewView,
   ) {}
 
   start(): void {
@@ -22,7 +21,7 @@ export class RefreshManager implements vscode.Disposable {
   }
 
   handleVisibility(): void {
-    if (this.view.visible) {
+    if (!this.view || this.view.visible) {
       this.updateTimer();
       void this.refresh();
     } else {
@@ -32,7 +31,7 @@ export class RefreshManager implements vscode.Disposable {
 
   private updateTimer(): void {
     this.stopTimer();
-    if (!this.view.visible || this.disposing) {
+    if ((this.view && !this.view.visible) || this.disposing) {
       return;
     }
     const sec = vscode.workspace
@@ -53,7 +52,7 @@ export class RefreshManager implements vscode.Disposable {
     if (this.refreshing) {
       return;
     }
-    const symbols = this.store.getAll();
+    const symbols = this.sink.getSymbols();
     this.refreshing = true;
     try {
       await this.sink.refresh(symbols);

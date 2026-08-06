@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { WatchlistCore } from '../src/watchlistCore';
+import { WatchlistCore, reconcileSubset } from '../src/watchlistCore';
 
 describe('WatchlistCore', () => {
   it('adds symbols', () => {
@@ -30,5 +30,20 @@ describe('WatchlistCore', () => {
     const core = new WatchlistCore(['a', 'b', 'c'], () => {});
     core.reorder(['c', 'b']);
     expect(core.getAll()).toEqual(['c', 'b', 'a']);
+  });
+});
+
+describe('reconcileSubset', () => {
+  it('drops items not in master', () => {
+    expect(reconcileSubset(['a', 'b', 'c'], ['b', 'x', 'a'])).toEqual(['b', 'a']);
+  });
+
+  it('keeps master order in subset', () => {
+    expect(reconcileSubset(['a', 'b', 'c'], ['c', 'a'])).toEqual(['c', 'a']);
+  });
+
+  it('handles empty inputs', () => {
+    expect(reconcileSubset([], ['a', 'b'])).toEqual([]);
+    expect(reconcileSubset(['a', 'b'], [])).toEqual([]);
   });
 });

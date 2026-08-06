@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Store } from './store';
 import { StockViewProvider } from './stockViewProvider';
+import { StatusBarController } from './statusBarController';
 import { searchStock, searchEastmoney, SearchResult } from './search';
 
 interface PickItem extends vscode.QuickPickItem {
@@ -9,7 +10,13 @@ interface PickItem extends vscode.QuickPickItem {
 
 export function activate(context: vscode.ExtensionContext): void {
   const store = Store.migrateLegacy(context);
-  const provider = new StockViewProvider(store);
+  const statusBar = new StatusBarController(store);
+  statusBar.start();
+  context.subscriptions.push(statusBar);
+
+  const provider = new StockViewProvider(store, () => {
+    void statusBar.refreshNow();
+  });
   context.subscriptions.push(provider);
 
   context.subscriptions.push(
@@ -17,7 +24,19 @@ export function activate(context: vscode.ExtensionContext): void {
       if (e.affectsConfiguration('aStockWatch.watchlist')) {
         store.reload();
         provider.refreshNow();
+        void statusBar.refreshNow();
       }
+      if (e.affectsConfiguration('aStockWatch.statusBar')) {
+        store.reload();
+        void statusBar.refreshNow();
+      }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('a-stock-watch.show', () => {
+      void vscode.commands.executeCommand('aStockWatchContainer.focus');
+      void vscode.commands.executeCommand('aStockWatch.focus');
     }),
   );
 
@@ -32,10 +51,11 @@ export function activate(context: vscode.ExtensionContext): void {
       qp.matchOnDescription = true;
       qp.matchOnDetail = true;
       qp.items = [];
-      qp.ignoreFocusOut = true;
+      qp.ignoreFocusOut = false;
 
       let searchSeq = 0;
       qp.onDidChangeValue(async (value) => {
+        qp.ignoreFocusOut = value.trim() !== '';
         const seq = ++searchSeq;
         if (!value.trim()) {
           qp.items = [];
