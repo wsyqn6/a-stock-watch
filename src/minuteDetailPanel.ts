@@ -313,7 +313,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     const W=L.width,H=L.totalH;
     const gridH=L.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+(W-AXIS_R)+'" y2="'+t.y+'"></line>').join('');
     const gridV=L.xTicks.map(t=>'<line class="grid" x1="'+t.x+'" y1="0" x2="'+t.x+'" y2="'+H+'"></line>').join('');
-    const yLab=L.yTicks.map(t=>'<text x="'+(W-AXIS_R+4)+'" y="'+(t.y+3)+'">'+t.label+'</text>').join('');
+    const yLab=L.yTicks.map(t=>'<text x="'+(W-AXIS_R+4)+'" y="'+(t.y+3)+'" dominant-baseline="hanging">'+t.label+'</text>').join('');
     const xLab=L.xTicks.map(t=>'<text x="'+t.x+'" y="'+(H-3)+'" text-anchor="middle">'+t.label+'</text>').join('');
     const bars=L.bars.map(b=>'<rect class="v '+b.cls+'" x="'+b.x.toFixed(1)+'" y="'+b.y.toFixed(1)+'" width="'+b.w.toFixed(2)+'" height="'+b.h.toFixed(1)+'"></rect>').join('');
     const pxCls=cls(L.lastPrice,m.prevClose);
