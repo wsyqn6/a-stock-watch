@@ -30,6 +30,10 @@ export function activate(context: vscode.ExtensionContext): void {
         store.reload();
         void statusBar.refreshNow();
       }
+      if (e.affectsConfiguration('aStockWatch.pinned')) {
+        store.reload();
+        provider.refreshNow();
+      }
     }),
   );
 

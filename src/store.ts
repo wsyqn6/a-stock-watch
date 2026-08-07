@@ -4,6 +4,7 @@ import { WatchlistCore, reconcileSubset } from './watchlistCore';
 const CONFIG_SECTION = 'aStockWatch';
 const WATCHLIST_KEY = 'watchlist';
 const STATUS_BAR_KEY = 'statusBar';
+const PINNED_KEY = 'pinned';
 const LEGACY_KEY = 'aStockWatch.list';
 const DEFAULT_SYMBOLS = ['sh000001', 'sz399001'];
 
@@ -12,6 +13,7 @@ export class Store implements vscode.Disposable {
 
   private watchlist: WatchlistCore;
   private statusBar: WatchlistCore;
+  private pinned: WatchlistCore;
 
   constructor(initial?: string[]) {
     this.watchlist = new WatchlistCore(
@@ -19,6 +21,7 @@ export class Store implements vscode.Disposable {
       (s) => this.persist(WATCHLIST_KEY, s),
     );
     this.statusBar = this.buildStatusBar(this.watchlist.getAll());
+    this.pinned = this.buildPinned(this.watchlist.getAll());
   }
 
   static migrateLegacy(context: vscode.ExtensionContext): Store {
@@ -66,12 +69,22 @@ export class Store implements vscode.Disposable {
     return new WatchlistCore(valid, (s) => this.persist(STATUS_BAR_KEY, s));
   }
 
+  private buildPinned(master: string[]): WatchlistCore {
+    const raw = this.read(PINNED_KEY, []);
+    const valid = reconcileSubset(master, raw);
+    if (valid.join('\n') !== raw.join('\n')) {
+      this.persist(PINNED_KEY, valid);
+    }
+    return new WatchlistCore(valid, (s) => this.persist(PINNED_KEY, s));
+  }
+
   reload(): void {
     this.watchlist = new WatchlistCore(
       this.read(WATCHLIST_KEY, DEFAULT_SYMBOLS),
       (s) => this.persist(WATCHLIST_KEY, s),
     );
     this.statusBar = this.buildStatusBar(this.watchlist.getAll());
+    this.pinned = this.buildPinned(this.watchlist.getAll());
   }
 
   getAll(): string[] {
@@ -90,6 +103,7 @@ export class Store implements vscode.Disposable {
     const ok = this.watchlist.remove(symbol);
     if (ok) {
       this.statusBar.remove(symbol);
+      this.pinned.remove(symbol);
     }
     return ok;
   }
@@ -100,6 +114,24 @@ export class Store implements vscode.Disposable {
 
   getStatusBar(): string[] {
     return this.statusBar.getAll();
+  }
+
+  isPinned(symbol: string): boolean {
+    return this.pinned.has(symbol);
+  }
+
+  getPinned(): string[] {
+    return this.pinned.getAll();
+  }
+
+  togglePin(symbol: string): boolean {
+    if (this.pinned.has(symbol)) {
+      return this.pinned.remove(symbol);
+    }
+    if (!this.watchlist.has(symbol)) {
+      return false;
+    }
+    return this.pinned.add(symbol);
   }
 
   statusBarHas(symbol: string): boolean {

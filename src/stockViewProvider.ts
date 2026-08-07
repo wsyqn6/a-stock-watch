@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { StockQuote, fetchQuotes, getMinuteCached, buildSpark, SparkData, isTradingTime } from './dataSource';
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
+import { orderQuotes, SortMode } from './order';
 
 export interface QuoteViewItem {
   sym: string;
@@ -12,9 +13,8 @@ export interface QuoteViewItem {
   cls: 'up' | 'down' | 'flat';
   spark: SparkData | null;
   inBar: boolean;
+  pinned: boolean;
 }
-
-type SortMode = 'manual' | 'code' | 'name' | 'pctDesc' | 'pctAsc';
 
 const MINUTE_INTERVAL_MS = 60_000;
 
@@ -65,6 +65,16 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
           this.onStatusBarChanged?.();
         } else if (typeof symbol === 'string' && this.store.getStatusBar().length >= Store.STATUS_BAR_MAX) {
           void vscode.window.showInformationMessage(`状态栏最多显示 ${Store.STATUS_BAR_MAX} 只股票`);
+        }
+      } else if (type === 'togglePin') {
+        const symbol = (msg as { symbol?: unknown }).symbol;
+        if (typeof symbol === 'string' && this.store.togglePin(symbol)) {
+          this.push();
+        }
+      } else if (type === 'copy') {
+        const code = (msg as { code?: unknown }).code;
+        if (typeof code === 'string') {
+          void vscode.env.clipboard.writeText(code);
         }
       } else if (type === 'reorder') {
         const symbols = (msg as { symbols?: unknown }).symbols;
@@ -213,27 +223,16 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 
   private ordered(): StockQuote[] {
-    if (this.sortMode === 'code') {
-      return [...this.quotes].sort((a, b) => a.symbol.slice(2).localeCompare(b.symbol.slice(2)));
-    }
-    if (this.sortMode === 'name') {
-      return [...this.quotes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
-    }
-    if (this.sortMode === 'pctDesc') {
-      return [...this.quotes].sort((a, b) => b.changePct - a.changePct);
-    }
-    if (this.sortMode === 'pctAsc') {
-      return [...this.quotes].sort((a, b) => a.changePct - b.changePct);
-    }
-    return this.quotes;
+    return orderQuotes(this.quotes, this.sortMode, new Set(this.store.getPinned()));
   }
 
   private push(): void {
     if (!this.view || !this.view.visible) {
       return;
     }
+    const pinned = new Set(this.store.getPinned());
     const items = this.ordered().map((q) =>
-      toViewItem(q, this.sparks.get(q.symbol) ?? null, this.store.statusBarHas(q.symbol)),
+      toViewItem(q, this.sparks.get(q.symbol) ?? null, this.store.statusBarHas(q.symbol), pinned.has(q.symbol)),
     );
     void this.view.webview.postMessage({ type: 'quotes', items, error: this.error, warn: this.warn });
   }
@@ -282,6 +281,16 @@ body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .pin svg{vertical-align:middle;display:block}
 .pin.on{color:#d4a017}
 .pin:hover{color:var(--vscode-textLink-foreground)}
+.top{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;padding:0;line-height:0;transition:max-width .15s ease,opacity .15s ease}
+body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
+.top svg{vertical-align:middle;display:block}
+.top.on{color:#d4a017}
+.top:hover{color:var(--vscode-textLink-foreground)}
+.ctxmenu{position:fixed;z-index:1000;min-width:150px;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground);border:1px solid var(--vscode-menu-border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);padding:4px 0;font-size:12px}
+.ctxmenu .item{padding:5px 14px;cursor:pointer;user-select:none}
+.ctxmenu .item:hover{background:var(--vscode-menu-selectionBackground);color:var(--vscode-menu-selectionForeground)}
+.ctxmenu .item.danger:hover{color:var(--vscode-errorForeground)}
+.ctxmenu .sep{height:1px;background:var(--vscode-menu-separatorBackground);margin:4px 8px}
 .up{color:var(--up)}
 .down{color:var(--down)}
 .flat{color:var(--vscode-descriptionForeground)}
@@ -297,6 +306,7 @@ body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
   const app=document.getElementById('app');
   const api=acquireVsCodeApi();
   const PIN_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5z" fill="currentColor"></path><circle cx="8" cy="6" r="1.7" fill="var(--vscode-editor-background)"></circle></svg>';
+  const TOP_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M9.6 1.4l5 5-1 1-1.4-1.4-1.9 1.9.9 2.1-2.8 2.8-2.6-2.6L4 14l-2-2 3.8-2.8-2.6-2.6 2.8-2.8 2.1.9 1.9-1.9-1.4-1.4z" fill="currentColor"/></svg>';
   api.postMessage({type:'ready'});
   let editing=false;
   let cur=[];
@@ -311,11 +321,13 @@ body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
   });
   function render(items,warn){
     cur=items;
+    closeMenu();
     const banner=warn?'<div class="warn">'+warn+'</div>':'';
     app.innerHTML=banner+items.map((it,i)=>{
       const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
       const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
-      return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+'<button class="del" title="删除">✕</button></div>';
+      const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
+      return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
     }).join('');
     fitNames();
     bind();
@@ -344,6 +356,8 @@ body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
       del.addEventListener('click',()=>api.postMessage({type:'remove',symbol:cur[i].sym}));
       const pin=row.querySelector('.pin');
       if(pin)pin.addEventListener('click',()=>api.postMessage({type:'toggleStatusBar',symbol:cur[i].sym}));
+      const top=row.querySelector('.top');
+      if(top)top.addEventListener('click',()=>api.postMessage({type:'togglePin',symbol:cur[i].sym}));
     });
     if(!editing)return;
     const order=rows.map(r=>+r.dataset.i);
@@ -365,6 +379,38 @@ body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
       });
     });
   }
+  let menu=null;
+  function closeMenu(){
+    if(menu){menu.remove();menu=null;}
+  }
+  function showMenu(x,y,it){
+    closeMenu();
+    menu=document.createElement('div');
+    menu.className='ctxmenu';
+    menu.innerHTML=
+      '<div class="item">'+(it.inBar?'从状态栏移除':'添加到状态栏')+'</div>'+
+      '<div class="item">'+(it.pinned?'取消置顶':'置顶')+'</div>'+
+      '<div class="item">复制代码</div>'+
+      '<div class="sep"></div>'+
+      '<div class="item danger">删除</div>';
+    document.body.appendChild(menu);
+    menu.style.left=Math.min(x,window.innerWidth-menu.offsetWidth-4)+'px';
+    menu.style.top=Math.min(y,window.innerHeight-menu.offsetHeight-4)+'px';
+    const items=Array.from(menu.querySelectorAll('.item'));
+    items[0].addEventListener('click',()=>api.postMessage({type:'toggleStatusBar',symbol:it.sym}));
+    items[1].addEventListener('click',()=>api.postMessage({type:'togglePin',symbol:it.sym}));
+    items[2].addEventListener('click',()=>api.postMessage({type:'copy',code:it.code}));
+    items[3].addEventListener('click',()=>api.postMessage({type:'remove',symbol:it.sym}));
+    items.forEach(el=>el.addEventListener('click',closeMenu));
+  }
+  window.addEventListener('contextmenu',e=>{
+    const row=e.target.closest('.row');
+    if(!row){closeMenu();return;}
+    e.preventDefault();
+    showMenu(e.clientX,e.clientY,cur[+row.dataset.i]);
+  });
+  window.addEventListener('mousedown',e=>{ if(menu&&!menu.contains(e.target))closeMenu(); });
+  window.addEventListener('keydown',e=>{ if(e.key==='Escape')closeMenu(); });
 })();
 </script>
 </body>
@@ -372,7 +418,7 @@ body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
   }
 }
 
-function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean): QuoteViewItem {
+function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean, pinned: boolean): QuoteViewItem {
   const cls: QuoteViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
   return {
     sym: q.symbol,
@@ -383,6 +429,7 @@ function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean): Quo
     cls,
     spark,
     inBar,
+    pinned,
   };
 }
 
