@@ -43,6 +43,7 @@ export class MinuteDetailPanel {
   private error: string | null = null;
   private ready = false;
   private pendingLoad = false;
+  private pendingSymbol = false;
   private loading = false;
   private disposed = false;
 
@@ -89,6 +90,7 @@ export class MinuteDetailPanel {
       return;
     }
     if (this.loading) {
+      this.pendingSymbol = true;
       return;
     }
     this.loading = true;
@@ -96,19 +98,18 @@ export class MinuteDetailPanel {
       await this.fetchData(true);
     } finally {
       this.loading = false;
+    }
+    if (this.pendingSymbol) {
+      this.pendingSymbol = false;
+      void this.load();
     }
   }
 
   private async refreshTick(): Promise<void> {
-    if (!this.ready || this.loading || !isTradingTime()) {
+    if (!isTradingTime()) {
       return;
     }
-    this.loading = true;
-    try {
-      await this.fetchData(true);
-    } finally {
-      this.loading = false;
-    }
+    await this.load();
   }
 
   private async fetchData(refetchQuote: boolean): Promise<void> {
