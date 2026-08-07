@@ -19,6 +19,14 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(provider);
 
+  const applyBossMode = (): void => {
+    const boss = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
+    void vscode.commands.executeCommand('setContext', 'aStockWatch.bossMode', boss);
+    provider.setBossMode(boss);
+    statusBar.setBoss(boss);
+  };
+  applyBossMode();
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('aStockWatch.watchlist')) {
@@ -33,6 +41,9 @@ export function activate(context: vscode.ExtensionContext): void {
       if (e.affectsConfiguration('aStockWatch.pinned')) {
         store.reload();
         provider.refreshNow();
+      }
+      if (e.affectsConfiguration('aStockWatch.bossMode')) {
+        applyBossMode();
       }
     }),
   );
@@ -154,6 +165,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('a-stock-watch.refresh', () => provider.refreshNow()),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('a-stock-watch.bossMode', () => {
+      const cur = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
+      void vscode.workspace
+        .getConfiguration('aStockWatch')
+        .update('bossMode', !cur, vscode.ConfigurationTarget.Global);
+    }),
   );
 }
 

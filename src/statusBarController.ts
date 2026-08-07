@@ -16,6 +16,7 @@ export class StatusBarController implements QuoteSink, vscode.Disposable {
   private quotes = new Map<string, StockQuote>();
   private manager: RefreshManager;
   private themeSub: vscode.Disposable;
+  private boss = false;
   private disposed = false;
 
   constructor(private readonly store: Store) {
@@ -29,6 +30,11 @@ export class StatusBarController implements QuoteSink, vscode.Disposable {
 
   getSymbols(): string[] {
     return this.store.getStatusBar();
+  }
+
+  setBoss(v: boolean): void {
+    this.boss = v;
+    this.reapplyColors();
   }
 
   async refresh(symbols: string[]): Promise<void> {
@@ -93,6 +99,9 @@ export class StatusBarController implements QuoteSink, vscode.Disposable {
   }
 
   private colorFor(pct: number): string | undefined {
+    if (this.boss) {
+      return undefined;
+    }
     const dark =
       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ||
       vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast;

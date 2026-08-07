@@ -33,6 +33,7 @@ export class MinuteDetailPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposeSub: vscode.Disposable;
   private readonly viewChangeSub: vscode.Disposable;
+  private readonly configSub: vscode.Disposable;
   private timer: NodeJS.Timeout | null = null;
   private symbol: string;
   private quote?: StockQuote;
@@ -46,6 +47,7 @@ export class MinuteDetailPanel {
   private pendingSymbol = false;
   private loading = false;
   private disposed = false;
+  private boss = false;
 
   private constructor(panel: vscode.WebviewPanel, symbol: string, quote?: StockQuote) {
     this.panel = panel;
@@ -74,6 +76,15 @@ export class MinuteDetailPanel {
         this.stopTimer();
       }
     });
+    this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('aStockWatch.bossMode')) {
+        this.boss = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
+        if (this.ready) {
+          this.push();
+        }
+      }
+    });
+    this.boss = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
     if (panel.visible) {
       this.startTimer();
     }
@@ -179,6 +190,7 @@ export class MinuteDetailPanel {
       amtTotal: this.amtTotal,
       minuteDate: this.minuteDate,
       error: this.error,
+      boss: this.boss,
     });
   }
 
@@ -199,6 +211,7 @@ export class MinuteDetailPanel {
     this.stopTimer();
     this.disposeSub.dispose();
     this.viewChangeSub.dispose();
+    this.configSub.dispose();
     if (MinuteDetailPanel.current === this) {
       MinuteDetailPanel.current = null;
     }
@@ -214,6 +227,7 @@ export class MinuteDetailPanel {
 <style>
 :root{--up:#E15241;--down:#2EA46E;--avg:#d8a33a}
 @media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
+body.boss{filter:grayscale(1)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:0 0 12px;user-select:none}
 .up{color:var(--up)}
@@ -274,6 +288,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     render(m);
   });
   function render(m){
+    document.body.classList.toggle('boss',!!m.boss);
     if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; return; }
     const pxCls=cls(m.price,m.prevClose);
     const vol=m.volTotal;

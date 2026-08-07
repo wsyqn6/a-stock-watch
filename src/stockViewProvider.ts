@@ -31,6 +31,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private warn: string | null = null;
   private sortMode: SortMode = 'manual';
   private editMode = false;
+  private bossMode = false;
 
   constructor(
     private readonly store: Store,
@@ -180,6 +181,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     this.pushEditMode();
   }
 
+  setBossMode(v: boolean): void {
+    this.bossMode = v;
+    this.push();
+  }
+
   toggleEditMode(): boolean {
     this.setEditMode(!this.editMode);
     return this.editMode;
@@ -241,7 +247,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const items = this.ordered().map((q) =>
       toViewItem(q, this.sparks.get(q.symbol) ?? null, this.store.statusBarHas(q.symbol), pinned.has(q.symbol)),
     );
-    void this.view.webview.postMessage({ type: 'quotes', items, error: this.error, warn: this.warn });
+    void this.view.webview.postMessage({ type: 'quotes', items, error: this.error, warn: this.warn, boss: this.bossMode });
   }
 
   private html(): string {
@@ -254,6 +260,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 <style>
 :root{--up:#E15241;--down:#2EA46E}
 @media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
+body.boss{filter:grayscale(1)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px}
 .row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
@@ -322,6 +329,7 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
     if(!m)return;
     if(m.type==='editMode'){ editing=!!m.value; document.body.classList.toggle('editing',editing); if(cur.length)render(cur); return; }
     if(m.type!=='quotes')return;
+    document.body.classList.toggle('boss',!!m.boss);
     if(m.error){app.innerHTML='<div class="msg">'+m.error+'</div>';return;}
     if(!m.items||!m.items.length){cur=[];app.innerHTML='<div class="msg">暂无自选股，点击 + 添加</div>';return;}
     render(m.items,m.warn);
