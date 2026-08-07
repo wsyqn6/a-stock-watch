@@ -3,6 +3,8 @@ import {
   parseTencentResponse,
   parseMinuteResponse,
   buildSpark,
+  buildMinuteSeries,
+  buildMinuteChart,
   sessionMinute,
   isTradingTime,
   beijingDateStr,
@@ -63,6 +65,41 @@ describe('parseTencentResponse', () => {
     expect(q[0].date).toBe('20260805');
   });
 
+  it('parses open/high/low when fields present', () => {
+    const f = Array(40).fill('0');
+    f[0] = '1';
+    f[1] = '测试股';
+    f[2] = 'sh600000';
+    f[3] = '10.50';
+    f[4] = '10.00';
+    f[5] = '10.20';
+    f[30] = '20260805150300';
+    f[31] = '0.50';
+    f[32] = '5.00';
+    f[33] = '10.80';
+    f[34] = '10.10';
+    const q = parseTencentResponse(`v_sh600000="${f.join('~')}";`);
+    expect(q[0].open).toBe(10.2);
+    expect(q[0].high).toBe(10.8);
+    expect(q[0].low).toBe(10.1);
+  });
+
+  it('leaves open/high/low undefined when absent', () => {
+    const f = Array(33).fill('0');
+    f[0] = '1';
+    f[1] = 'A';
+    f[2] = 'sh000001';
+    f[3] = '10.00';
+    f[4] = '10.00';
+    f[5] = '10.00';
+    f[30] = '20260805161202';
+    f[31] = '0.00';
+    f[32] = '0.00';
+    const q = parseTencentResponse(`v_sh000001="${f.join('~')}";`);
+    expect(q[0].high).toBeUndefined();
+    expect(q[0].low).toBeUndefined();
+  });
+
   it('leaves date empty when timestamp is missing', () => {
     const q = parseTencentResponse(SAMPLE);
     expect(q[0].date).toBe('');
@@ -94,8 +131,8 @@ describe('parseMinuteResponse', () => {
     const d = parseMinuteResponse(raw, SYM);
     expect(d.date).toBe('20260805');
     expect(d.points).toHaveLength(6);
-    expect(d.points[0]).toEqual({ time: '0930', price: 1822.42 });
-    expect(d.points[5]).toEqual({ time: '1500', price: 1830.5 });
+    expect(d.points[0]).toMatchObject({ time: '0930', price: 1822.42 });
+    expect(d.points[5]).toMatchObject({ time: '1500', price: 1830.5 });
   });
 
   it('ignores malformed rows', () => {
@@ -185,6 +222,92 @@ describe('parseMinuteResponse', () => {
   it('returns null for insufficient points', () => {
     const d = { date: '211008', points: [{ time: '0930', price: 10 }] };
     expect(buildSpark(d, 10)).toBeNull();
+  });
+});
+
+describe('minute series & chart', () => {
+  const SYM = 'sz000001';
+  const minuteJSON = (rows: string[]) =>
+    JSON.stringify({
+      data: {
+        [SYM]: {
+          data: {
+            date: '20260805',
+            data: rows,
+          },
+        },
+      },
+    });
+  // vol in 手, amt = price * vol * 100 元
+  const rows = [
+    '0930 10.00 100 100000.00',
+    '0931 10.20 300 303000.00',
+    '0932 10.10 400 402800.00',
+    '0933 10.00 400 400000.00',
+  ];
+
+  it('parses cumulative volume and amount', () => {
+    const d = parseMinuteResponse(minuteJSON(rows), SYM);
+    expect(d.points[0]).toEqual({ time: '0930', price: 10.0, vol: 100, amt: 100000 });
+    expect(d.points[3].vol).toBe(400);
+  });
+
+  it('parses 2-field rows without volume info', () => {
+    const d = parseMinuteResponse(minuteJSON(['0930 10.00', '0931 10.10']), SYM);
+    expect(d.points[0].vol).toBeUndefined();
+  });
+
+  it('computes cumulative average price and per-minute volume', () => {
+    const s = buildMinuteSeries(parseMinuteResponse(minuteJSON(rows), SYM));
+    expect(s).toHaveLength(4);
+    expect(s[0]).toEqual({ time: '0930', price: 10.0, avg: 10.0, volume: 0 });
+    expect(s[1].avg).toBeCloseTo(10.1, 4);
+    expect(s[1].volume).toBe(200);
+    expect(s[2].avg).toBeCloseTo(10.07, 4);
+    expect(s[2].volume).toBe(100);
+    expect(s[3].volume).toBe(0);
+  });
+
+  it('skips points without volume info', () => {
+    const d = parseMinuteResponse(minuteJSON(['0930 10.00', '0931 10.10 200 202000.00']), SYM);
+    const s = buildMinuteSeries(d);
+    expect(s).toHaveLength(1);
+    expect(s[0].time).toBe('0931');
+  });
+
+  it('builds a chart layout with line, avg, baseline and volume bars', () => {
+    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0);
+    expect(c).not.toBeNull();
+    expect(c!.priceLine.split(' ')).toHaveLength(4);
+    expect(c!.avgLine).toBeTruthy();
+    expect(c!.baseY).toBeGreaterThan(0);
+    expect(c!.lastPrice).toBe(10.0);
+    expect(c!.lastAvg).toBeCloseTo(10.0, 4);
+    expect(c!.bars).toHaveLength(4);
+    expect(c!.bars[0].h).toBe(0);
+    expect(c!.xTicks.map((t) => t.label)).toEqual([
+      '09:30',
+      '10:30',
+      '11:30',
+      '14:00',
+      '15:00',
+    ]);
+  });
+
+  it('returns null for insufficient points', () => {
+    const d = parseMinuteResponse(minuteJSON(['0930 10.00 100 100000.00']), SYM);
+    expect(buildMinuteChart(d, 10)).toBeNull();
+  });
+
+  it('sizes volume bars by max per-minute volume', () => {
+    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0)!;
+    const maxBar = Math.max(...c.bars.map((b) => b.h));
+    expect(maxBar).toBeCloseTo(c.volH - 2, 1);
+  });
+
+  it('returns null for series with no volume data', () => {
+    const d = parseMinuteResponse(minuteJSON(['0930 10.00', '0931 10.10']), SYM);
+    expect(buildMinuteChart(d, 10)).toBeNull();
   });
 });
 

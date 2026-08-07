@@ -5,6 +5,9 @@ export interface StockQuote {
   name: string;
   price: number;
   prevClose: number;
+  open?: number;
+  high?: number;
+  low?: number;
   change: number;
   changePct: number;
   trend: 'up' | 'down' | 'flat';
@@ -42,6 +45,9 @@ export function parseTencentResponse(text: string): StockQuote[] {
     const name = fields[1];
     const price = Number(fields[3]);
     const prevClose = Number(fields[4]);
+    const open = Number(fields[5]);
+    const high = Number(fields[33]);
+    const low = Number(fields[34]);
     const change = Number(fields[31]);
     const changePct = Number(fields[32]);
     if (!Number.isFinite(price) || !Number.isFinite(prevClose)) {
@@ -50,7 +56,19 @@ export function parseTencentResponse(text: string): StockQuote[] {
     const trend: StockQuote['trend'] =
       changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat';
     const date = /^\d{8}/.exec(fields[30])?.[0] ?? '';
-    quotes.push({ symbol, name, price, prevClose, change, changePct, trend, date });
+    quotes.push({
+      symbol,
+      name,
+      price,
+      prevClose,
+      open: Number.isFinite(open) ? open : undefined,
+      high: Number.isFinite(high) ? high : undefined,
+      low: Number.isFinite(low) ? low : undefined,
+      change,
+      changePct,
+      trend,
+      date,
+    });
   }
   return quotes;
 }
@@ -58,6 +76,8 @@ export function parseTencentResponse(text: string): StockQuote[] {
 export interface MinutePoint {
   time: string;
   price: number;
+  vol?: number;
+  amt?: number;
 }
 
 export interface MinuteData {
@@ -107,9 +127,14 @@ export function parseMinuteResponse(text: string, symbol: string): MinuteData {
   const date = node?.data?.date ?? '';
   const points: MinutePoint[] = [];
   for (const row of node?.data?.data ?? []) {
-    const m = /^(\d{4})\s+([\d.]+)/.exec(row.trim());
+    const m = /^(\d{4})\s+([\d.]+)(?:\s+(\d+)\s+([\d.]+))?/.exec(row.trim());
     if (m) {
-      points.push({ time: m[1], price: Number(m[2]) });
+      const point: MinutePoint = { time: m[1], price: Number(m[2]) };
+      if (m[3] !== undefined && m[4] !== undefined) {
+        point.vol = Number(m[3]);
+        point.amt = Number(m[4]);
+      }
+      points.push(point);
     }
   }
   return { date, points };
@@ -157,6 +182,139 @@ export function buildSpark(data: MinuteData, prevClose: number): SparkData | nul
   const floorY = Math.max(...sampled.map((p) => y(p.price))).toFixed(1);
   const area = `M${pts.join(' L')} L${ex} ${floorY} L${bx} ${floorY} Z`;
   return { color, line, area, baseY };
+}
+
+export interface MinuteDetailPoint {
+  time: string;
+  price: number;
+  avg: number;
+  volume: number;
+}
+
+export function buildMinuteSeries(data: MinuteData): MinuteDetailPoint[] {
+  const out: MinuteDetailPoint[] = [];
+  let lastVol = 0;
+  let haveLast = false;
+  for (const p of data.points) {
+    if (p.vol === undefined || p.amt === undefined || p.vol <= 0) {
+      continue;
+    }
+    const volume = haveLast ? Math.max(0, p.vol - lastVol) : 0;
+    lastVol = p.vol;
+    haveLast = true;
+    out.push({ time: p.time, price: p.price, avg: p.amt / (p.vol * 100), volume });
+  }
+  return out;
+}
+
+export interface MinuteChartLayout {
+  width: number;
+  totalH: number;
+  mainH: number;
+  volH: number;
+  priceLine: string;
+  avgLine: string | null;
+  baseY: number;
+  bars: { x: number; w: number; y: number; h: number; cls: 'up' | 'down' }[];
+  xTicks: { x: number; label: string }[];
+  yTicks: { y: number; label: string }[];
+  pts: { x: number; y: number; ay: number; price: number; avg: number; volume: number; time: string }[];
+  lastPrice: number;
+  lastAvg: number;
+}
+
+const CHART_W = 640;
+const CHART_PAD_L = 6;
+const CHART_AXIS_R = 46;
+const CHART_MAIN_H = 200;
+const CHART_VOL_H = 56;
+const CHART_GAP = 6;
+const CHART_TOTAL_H = CHART_MAIN_H + CHART_GAP + CHART_VOL_H;
+const CHART_Y_DIVS = 4;
+
+export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteChartLayout | null {
+  const series = buildMinuteSeries(data);
+  if (series.length < 2) {
+    return null;
+  }
+  const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
+  const x = (sm: number) => CHART_PAD_L + (sm / SESSION_TOTAL) * plotW;
+  let lo = prevClose;
+  let hi = prevClose;
+  for (const p of series) {
+    lo = Math.min(lo, p.price, p.avg);
+    hi = Math.max(hi, p.price, p.avg);
+  }
+  if (hi - lo < 1e-9) {
+    hi += 1;
+    lo -= 1;
+  }
+  const pad = (hi - lo) * 0.05;
+  const yMin = lo - pad;
+  const yMax = hi + pad;
+  const y = (p: number) => CHART_MAIN_H - ((p - yMin) / (yMax - yMin)) * CHART_MAIN_H;
+  const priceLine = series
+    .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.price).toFixed(1)}`)
+    .join(' ');
+  const avgLine = series
+    .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.avg).toFixed(1)}`)
+    .join(' ');
+  const baseY = y(prevClose);
+  const vmax = Math.max(...series.map((p) => p.volume), 1);
+  const bw = plotW / series.length;
+  const bars = series.map(
+    (p): { x: number; w: number; y: number; h: number; cls: 'up' | 'down' } => {
+      const h = p.volume > 0 ? (p.volume / vmax) * (CHART_VOL_H - 2) : 0;
+      return {
+        x: x(sessionMinute(p.time)),
+        w: Math.max(0.5, bw),
+        y: CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - h),
+        h,
+        cls: p.price >= prevClose ? 'up' : 'down',
+      };
+    },
+  );
+  const xTicks = [0, 60, 120, 180, 240].map((sm) => ({ x: x(sm), label: smLabel(sm) }));
+  const yTicks = Array.from({ length: CHART_Y_DIVS + 1 }, (_, i) => ({
+    y: (CHART_MAIN_H * i) / CHART_Y_DIVS,
+    label: (yMin + ((yMax - yMin) * i) / CHART_Y_DIVS).toFixed(2),
+  }));
+  const pts = series.map((p) => {
+    const sx = x(sessionMinute(p.time));
+    return {
+      x: sx,
+      y: y(p.price),
+      ay: y(p.avg),
+      price: p.price,
+      avg: p.avg,
+      volume: p.volume,
+      time: p.time,
+    };
+  });
+  const last = series[series.length - 1];
+  return {
+    width: CHART_W,
+    totalH: CHART_TOTAL_H,
+    mainH: CHART_MAIN_H,
+    volH: CHART_VOL_H,
+    priceLine,
+    avgLine,
+    baseY,
+    bars,
+    xTicks,
+    yTicks,
+    pts,
+    lastPrice: last.price,
+    lastAvg: last.avg,
+  };
+}
+
+function smLabel(sm: number): string {
+  if (sm === 0) return '09:30';
+  if (sm === 60) return '10:30';
+  if (sm === 120) return '11:30';
+  if (sm === 180) return '14:00';
+  return '15:00';
 }
 
 const SESSION_TOTAL = 240;

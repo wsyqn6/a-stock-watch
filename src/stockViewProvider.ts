@@ -3,6 +3,7 @@ import { StockQuote, fetchQuotes, getMinuteCached, buildSpark, SparkData, isTrad
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 import { orderQuotes, SortMode } from './order';
+import { MinuteDetailPanel } from './minuteDetailPanel';
 
 export interface QuoteViewItem {
   sym: string;
@@ -85,6 +86,12 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       } else if (type === 'sortMode') {
         this.sortMode = (msg as { mode?: unknown }).mode as SortMode;
         this.push();
+      } else if (type === 'openDetail') {
+        const symbol = (msg as { symbol?: unknown }).symbol;
+        if (typeof symbol === 'string') {
+          const quote = this.quotes.find((q) => q.symbol === symbol);
+          MinuteDetailPanel.open(symbol, quote);
+        }
       }
     });
     this.manager?.dispose();
@@ -352,6 +359,11 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
   function bind(){
     const rows=Array.from(app.querySelectorAll('.row'));
     rows.forEach((row,i)=>{
+      row.addEventListener('click',(e)=>{
+        if(editing)return;
+        if(e.target.closest('.del,.pin,.top,.handle'))return;
+        api.postMessage({type:'openDetail',symbol:cur[i].sym});
+      });
       const del=row.querySelector('.del');
       del.addEventListener('click',()=>api.postMessage({type:'remove',symbol:cur[i].sym}));
       const pin=row.querySelector('.pin');
