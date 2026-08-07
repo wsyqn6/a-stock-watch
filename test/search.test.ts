@@ -24,6 +24,14 @@ describe('parseSearchResponse', () => {
     expect(r).toHaveLength(0);
   });
 
+  it('keeps first stock when v_cate_hint precedes v_hint', () => {
+    const raw =
+      'v_cate_hint="bd027800~\u7f51\u7edc\u6e38\u620f~WLYX";\nv_hint="sz~000858~\u4e94\u7cae\u6db2~wly~GP-A^sz~002434~\u4e07\u91cc\u626c~wly~GP-A"';
+    const r = parseSearchResponse(raw);
+    expect(r.map((x) => x.symbol)).toEqual(['sz000858', 'sz002434']);
+    expect(r[0].name).toBe('五粮液');
+  });
+
   it('handles empty response', () => {
     expect(parseSearchResponse('v_hint=""')).toHaveLength(0);
     expect(parseSearchResponse('garbage')).toHaveLength(0);

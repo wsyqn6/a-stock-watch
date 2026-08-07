@@ -48,8 +48,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('a-stock-watch.add', () => {
       const qp = vscode.window.createQuickPick<PickItem>();
       qp.placeholder = '搜索代码 / 拼音缩写 / 名称，或直接输入 6 位代码';
-      qp.matchOnDescription = true;
-      qp.matchOnDetail = true;
       qp.items = [];
       qp.ignoreFocusOut = false;
 
@@ -83,6 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
         qp.items = found.map((r) => ({
           label: `${r.name}  ${r.code}`,
           detail: r.symbol,
+          alwaysShow: true,
           result: r,
         }));
       });

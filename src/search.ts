@@ -79,7 +79,9 @@ function emMarket(quoteId: unknown): 'sh' | 'sz' | null {
 
 export function parseSearchResponse(text: string): SearchResult[] {
   const results: SearchResult[] = [];
-  const raw = text.replace(/^v_hint=\s*"|";?\s*$/g, '');
+  const marker = 'v_hint="';
+  const start = text.indexOf(marker);
+  const raw = (start === -1 ? text : text.slice(start + marker.length)).replace(/";?\s*$/g, '');
   if (!raw) {
     return results;
   }
