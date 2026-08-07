@@ -299,6 +299,45 @@ describe('minute series & chart', () => {
     expect(buildMinuteChart(d, 10)).toBeNull();
   });
 
+  it('drops avg when avg unit mismatches price (index-like)', () => {
+    const indexRows = [
+      '0930 3896.49 4763106 9005773968.70',
+      '0931 3893.03 17978590 34271023623.20',
+      '0932 3890.05 31411251 61233091457.00',
+      '0933 3893.92 39690844 79500731107.60',
+    ];
+    const c = buildMinuteChart(
+      parseMinuteResponse(minuteJSON(indexRows), SYM),
+      3900.35,
+    )!;
+    expect(c.avgLine).toBeNull();
+    expect(c.lastAvg).toBeNull();
+    expect(c.pts[0].avg).toBeNull();
+    expect(c.pts[0].ay).toBeNull();
+  });
+
+  it('spreads price line across full height without bogus avg', () => {
+    const indexRows = [
+      '0930 3896.49 4763106 9005773968.70',
+      '0931 3893.03 17978590 34271023623.20',
+      '0932 3890.05 31411251 61233091457.00',
+      '0933 3893.92 39690844 79500731107.60',
+    ];
+    const c = buildMinuteChart(
+      parseMinuteResponse(minuteJSON(indexRows), SYM),
+      3900.35,
+    )!;
+    const ys = c.pts.map((p) => p.y);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(c.mainH * 0.5);
+  });
+
+  it('keeps avg when it falls inside the price range', () => {
+    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0)!;
+    expect(c.avgLine).not.toBeNull();
+    expect(c.lastAvg).not.toBeNull();
+    expect(c.pts[0].avg).not.toBeNull();
+  });
+
   it('sizes volume bars by max per-minute volume', () => {
     const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0)!;
     const maxBar = Math.max(...c.bars.map((b) => b.h));

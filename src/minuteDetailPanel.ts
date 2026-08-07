@@ -317,13 +317,14 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     const xLab=L.xTicks.map(t=>'<text x="'+t.x+'" y="'+(H-3)+'" text-anchor="middle">'+t.label+'</text>').join('');
     const bars=L.bars.map(b=>'<rect class="v '+b.cls+'" x="'+b.x.toFixed(1)+'" y="'+b.y.toFixed(1)+'" width="'+b.w.toFixed(2)+'" height="'+b.h.toFixed(1)+'"></rect>').join('');
     const pxCls=cls(L.lastPrice,m.prevClose);
+    const avgEl=L.avgLine?('<polyline class="avg" points="'+L.avgLine+'"></polyline>'):'';
     return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridV+gridH+yLab+
       '<g id="vol">'+bars+'</g>'+
       '<line class="base" x1="0" y1="'+L.baseY+'" x2="'+(W-AXIS_R)+'" y2="'+L.baseY+'"></line>'+
       '<polyline class="price '+pxCls+'" points="'+L.priceLine+'"></polyline>'+
-      '<polyline class="avg" points="'+L.avgLine+'"></polyline>'+
+      avgEl+
       '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><circle id="cp" class="p" r="3.5"></circle><circle id="ca" class="a" r="3"></circle></g>'+
       xLab+
       '</svg></div>';
@@ -344,12 +345,13 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       cx.setAttribute('x1',p.x); cx.setAttribute('x2',p.x);
       cp.setAttribute('cx',p.x); cp.setAttribute('cy',p.y);
       cp.className.baseVal='p '+cls(p.price,m.prevClose);
-      ca.setAttribute('cx',p.x); ca.setAttribute('cy',p.ay);
+      ca.setAttribute('cx',p.x);
+      if(p.ay!=null){ ca.setAttribute('cy',p.ay); ca.style.display=''; } else { ca.style.display='none'; }
       const pc=cls(p.price,m.prevClose);
       tip.style.display='block';
       tip.innerHTML=
         '<div class="row"><span>'+hm(p.time)+'</span><b class="'+pc+'">'+p.price.toFixed(2)+'</b></div>'+
-        '<div class="row"><span>均价</span><b style="color:var(--avg)">'+p.avg.toFixed(2)+'</b></div>'+
+        (p.avg!=null?'<div class="row"><span>均价</span><b style="color:var(--avg)">'+p.avg.toFixed(2)+'</b></div>':'')+
         '<div class="row"><span>成交量</span><b>'+fmtVol(p.volume)+'</b></div>';
       const frac=p.x/W;
       const rw=svg.parentNode.getBoundingClientRect();

@@ -218,9 +218,9 @@ export interface MinuteChartLayout {
   bars: { x: number; w: number; y: number; h: number; cls: 'up' | 'down' }[];
   xTicks: { x: number; label: string }[];
   yTicks: { y: number; label: string }[];
-  pts: { x: number; y: number; ay: number; price: number; avg: number; volume: number; time: string }[];
+  pts: { x: number; y: number; ay: number | null; price: number; avg: number | null; volume: number; time: string }[];
   lastPrice: number;
-  lastAvg: number;
+  lastAvg: number | null;
 }
 
 const CHART_W = 640;
@@ -239,11 +239,21 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
   }
   const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
   const x = (sm: number) => CHART_PAD_L + (sm / SESSION_TOTAL) * plotW;
+  const priceMin = Math.min(...series.map((p) => p.price));
+  const priceMax = Math.max(...series.map((p) => p.price));
+  const slack = Math.max(priceMax - priceMin, priceMin * 0.5, 1e-6);
+  const avgUsable = series.every(
+    (p) => p.avg >= priceMin - slack && p.avg <= priceMax + slack,
+  );
   let lo = prevClose;
   let hi = prevClose;
   for (const p of series) {
-    lo = Math.min(lo, p.price, p.avg);
-    hi = Math.max(hi, p.price, p.avg);
+    lo = Math.min(lo, p.price);
+    hi = Math.max(hi, p.price);
+    if (avgUsable) {
+      lo = Math.min(lo, p.avg);
+      hi = Math.max(hi, p.avg);
+    }
   }
   if (hi - lo < 1e-9) {
     hi += 1;
@@ -256,9 +266,11 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
   const priceLine = series
     .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.price).toFixed(1)}`)
     .join(' ');
-  const avgLine = series
-    .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.avg).toFixed(1)}`)
-    .join(' ');
+  const avgLine = avgUsable
+    ? series
+        .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.avg).toFixed(1)}`)
+        .join(' ')
+    : null;
   const baseY = y(prevClose);
   const vmax = Math.max(...series.map((p) => p.volume), 1);
   const bw = plotW / series.length;
@@ -284,9 +296,9 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
     return {
       x: sx,
       y: y(p.price),
-      ay: y(p.avg),
+      ay: avgUsable ? y(p.avg) : null,
       price: p.price,
-      avg: p.avg,
+      avg: avgUsable ? p.avg : null,
       volume: p.volume,
       time: p.time,
     };
@@ -305,7 +317,7 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
     yTicks,
     pts,
     lastPrice: last.price,
-    lastAvg: last.avg,
+    lastAvg: avgUsable ? last.avg : null,
   };
 }
 
