@@ -17,7 +17,16 @@ export class MinuteDetailPanel {
   static open(symbol: string, quote?: StockQuote): void {
     const existing = MinuteDetailPanel.current;
     if (existing && !existing.disposed) {
-      existing.panel.reveal(vscode.ViewColumn.Beside, true);
+      // 关键修复：复用面板时不要反复 reveal 到 ViewColumn.Beside。
+      // Beside 会被解析成具体列号，多次 reveal 会让面板在 col=2/col=3
+      // 之间反复切换，每次切换 VSCode 都会销毁并重建 webview 内容，
+      // 导致 fetchData 完成后发出的 postMessage 在重建瞬间被丢弃 → 空白。
+      // 改为：已可见则只 reveal()（保留原列），隐藏则回到原列。
+      if (existing.panel.visible) {
+        existing.panel.reveal(existing.panel.viewColumn);
+      } else {
+        existing.panel.reveal(existing.panel.viewColumn, true);
+      }
       void existing.load(symbol, quote);
       return;
     }
@@ -71,7 +80,12 @@ export class MinuteDetailPanel {
     this.viewChangeSub = panel.onDidChangeViewState((e) => {
       if (e.webviewPanel.visible) {
         this.startTimer();
-        void this.load();
+        // reveal 复用到其他视图列时，webview 内容可能被重置或 postMessage
+        // 在切换瞬间被丢弃。面板重新可见时，补推一次当前已加载的数据，
+        // 避免「不关闭点另一个 → 空白」。
+        if (this.ready && (this.layout !== null || this.quote)) {
+          this.push();
+        }
       } else {
         this.stopTimer();
       }
@@ -93,6 +107,11 @@ export class MinuteDetailPanel {
 
   private async load(symbol?: string, quote?: StockQuote): Promise<void> {
     if (symbol) {
+      if (this.symbol !== symbol) {
+        // 切换标的时丢弃旧图与错误，避免上一次成功的布局泄漏到新标的
+        this.layout = null;
+        this.error = null;
+      }
       this.symbol = symbol;
       this.quote = quote;
     }
@@ -112,7 +131,9 @@ export class MinuteDetailPanel {
     }
     if (this.pendingSymbol) {
       this.pendingSymbol = false;
-      void this.load();
+      // 携带当前（最新）的标的与行情重载，避免 reveal 触发的
+      // onDidChangeViewState 与本次 load 交错导致的旧图污染
+      void this.load(this.symbol, this.quote);
     }
   }
 
@@ -129,18 +150,28 @@ export class MinuteDetailPanel {
         const list = await fetchQuotes([this.symbol]);
         this.quote = list[0];
       } catch {
-        // keep the last known quote
+        // keep the last known quote only when symbols match
+        if (this.quote && this.quote.symbol !== this.symbol) {
+          this.quote = undefined;
+        }
       }
     }
+    // 注意：此处不再无条件清空 layout/error。
+    // 切换标的时的清空已由 load() 负责；同标的刷新失败时应保留上一张图，
+    // 避免每 10s 定时刷新闪现「暂无分时数据」。
     const q = this.quote;
     if (!q) {
       this.error = '未获取到行情数据';
       this.push();
       return;
     }
-    if (q.name) {
-      this.panel.title = `${q.name} · 分时`;
+    if (q.symbol !== this.symbol) {
+      // 残留的旧行情与目标股票不匹配，不应使用
+      this.error = '未获取到行情数据';
+      this.push();
+      return;
     }
+    this.panel.title = `${q.name ?? this.symbol} · 分时`;
     try {
       const { data } = await getMinuteCached(this.symbol);
       const layout = buildMinuteChart(data, q.prevClose);
@@ -160,6 +191,8 @@ export class MinuteDetailPanel {
       this.amtTotal = amt;
       this.minuteDate = data.date;
     } catch (err) {
+      // 同标的刷新失败时保留上一张可用图；切换标的时 layout 已被 load 清空，
+      // 走到这里必然置错误提示，避免旧图残留
       if (this.layout === null) {
         this.error = err instanceof Error ? err.message : '加载失败';
       }
@@ -288,24 +321,33 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     render(m);
   });
   function render(m){
-    document.body.classList.toggle('boss',!!m.boss);
-    if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; return; }
-    const pxCls=cls(m.price,m.prevClose);
-    const vol=m.volTotal;
-    const head=
-      '<div class="head"><span class="nm">'+m.name+'</span><span class="cd">'+m.code+'</span>'+
-      '<span class="px '+pxCls+'">'+m.price.toFixed(2)+'</span>'+
-      '<span class="chg '+pxCls+'">'+sign(m.change)+m.change.toFixed(2)+'&nbsp; '+sign(m.changePct)+m.changePct.toFixed(2)+'%</span></div>';
-    const stats=
-      '<div class="stats">'+
-      (m.open!=null?'<span>今开 <b>'+m.open.toFixed(2)+'</b></span>':'')+
-      (m.high!=null?'<span>最高 <b>'+m.high.toFixed(2)+'</b></span>':'')+
-      (m.low!=null?'<span>最低 <b>'+m.low.toFixed(2)+'</b></span>':'')+
-      '<span>昨收 <b>'+m.prevClose.toFixed(2)+'</b></span>'+
-      '<span>成交量 <b>'+fmtVol(vol)+'</b></span>'+
-      '<span>成交额 <b>'+fmtAmt(m.amtTotal)+'</b></span></div>';
-    app.innerHTML=head+stats+chartSVG(m);
-    bindChart(m);
+    try {
+      document.body.classList.toggle('boss',!!m.boss);
+      if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; return; }
+      const price=m.price==null?0:m.price;
+      const prevClose=m.prevClose==null?0:m.prevClose;
+      const change=m.change==null?0:m.change;
+      const changePct=m.changePct==null?0:m.changePct;
+      const pxCls=cls(price,prevClose);
+      const vol=m.volTotal;
+      const head=
+        '<div class="head"><span class="nm">'+m.name+'</span><span class="cd">'+m.code+'</span>'+
+        '<span class="px '+pxCls+'">'+price.toFixed(2)+'</span>'+
+        '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span></div>';
+      const stats=
+        '<div class="stats">'+
+        (m.open!=null?'<span>今开 <b>'+m.open.toFixed(2)+'</b></span>':'')+
+        (m.high!=null?'<span>最高 <b>'+m.high.toFixed(2)+'</b></span>':'')+
+        (m.low!=null?'<span>最低 <b>'+m.low.toFixed(2)+'</b></span>':'')+
+        '<span>昨收 <b>'+prevClose.toFixed(2)+'</b></span>'+
+        '<span>成交量 <b>'+fmtVol(vol)+'</b></span>'+
+        '<span>成交额 <b>'+fmtAmt(m.amtTotal)+'</b></span></div>';
+      app.innerHTML=head+stats+chartSVG(m);
+      bindChart(m);
+    } catch (e) {
+      app.innerHTML='<div class="msg">渲染失败: '+(e&&e.message?e.message:String(e))+'</div>';
+      console.error('AStockDetail render error', e);
+    }
   }
   function chartSVG(m){
     const L=m.layout;
