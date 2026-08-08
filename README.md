@@ -7,7 +7,18 @@
 
 在 VS Code 侧边栏实时查看 A 股自选股行情，支持分时迷你走势图、置顶、右键快捷操作与排序。
 
-![截图](media/zx1.png)
+
+![截图](media/zx1.webp)
+
+老板模式（`Ctrl+Alt+L`）一键灰显界面：
+
+![老板模式](media/boss1.webp)
+
+## 安装
+
+VS Code 扩展市场搜索「A股速览」，或访问插件主页直接安装：
+
+[A股速览 - Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=wsyqn6.a-stock-watch)
 
 ## 特性
 
@@ -77,6 +88,12 @@ bun run compile   # 编译 TS -> out/
 bun test          # 运行测试
 bun run package   # 打包 .vsix
 ```
+
+## 安装
+
+VS Code 扩展市场搜索「A股速览」，或访问插件主页直接安装：
+
+[A股速览 - Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=wsyqn6.a-stock-watch)
 
 ## License
 
