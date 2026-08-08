@@ -19,6 +19,61 @@ export interface QuoteViewItem {
 
 const MINUTE_INTERVAL_MS = 60_000;
 
+const WEBVIEW_CSS = `
+:root{--up:#E15241;--down:#2EA46E}
+@media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
+body.boss{filter:grayscale(1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px}
+.row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
+.row:hover{background:var(--vscode-list-hoverBackground)}
+.row.drag{opacity:.4}
+.row.drop{border-top:2px solid var(--vscode-focusBorder)}
+.handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
+.handle:active{cursor:grabbing}
+.left{flex:0 0 90px;width:90px;max-width:90px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
+.right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
+.name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
+.price{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
+.pct{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px;transition:opacity .12s ease}
+.row:hover .spark polyline:not(.glow){stroke-width:1.6}
+@media (prefers-reduced-motion:reduce){.row,.spark{transition:none}}
+.spark polyline{fill:none;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.spark path.area{fill:none;opacity:.8}
+.spark.up path.area{fill:url(#gUp)}
+.spark.down path.area{fill:url(#gDown)}
+.row:hover .spark path.area{opacity:1}
+.spark line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:3 2;opacity:.45;vector-effect:non-scaling-stroke}
+.spark.up polyline{stroke:var(--up)}
+.spark.down polyline{stroke:var(--down)}
+.spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
+.del{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0;transition:max-width .15s ease,opacity .15s ease}
+body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
+.del:hover{color:var(--vscode-errorForeground)}
+.pin{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;padding:0;line-height:0;transition:max-width .15s ease,opacity .15s ease}
+body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
+.pin svg{vertical-align:middle;display:block}
+.pin.on{color:#d4a017}
+.pin:hover{color:var(--vscode-textLink-foreground)}
+.top{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;padding:0;line-height:0;transition:max-width .15s ease,opacity .15s ease}
+body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
+.top svg{vertical-align:middle;display:block}
+.top.on{color:#d4a017}
+.top:hover{color:var(--vscode-textLink-foreground)}
+.ctxmenu{position:fixed;z-index:1000;min-width:150px;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground);border:1px solid var(--vscode-menu-border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);padding:4px 0;font-size:12px}
+.ctxmenu .item{padding:5px 14px;cursor:pointer;user-select:none}
+.ctxmenu .item:hover{background:var(--vscode-menu-selectionBackground);color:var(--vscode-menu-selectionForeground)}
+.ctxmenu .item.danger:hover{color:var(--vscode-errorForeground)}
+.ctxmenu .sep{height:1px;background:var(--vscode-menu-separatorBackground);margin:4px 8px}
+.up{color:var(--up)}
+.down{color:var(--down)}
+.flat{color:var(--vscode-descriptionForeground)}
+.msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
+.warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
+`;
+
 export class StockViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'aStockWatch';
   private view?: vscode.WebviewView;
@@ -128,7 +183,10 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const symbols = this.store.getAll();
-    if (!isTradingTime() && symbols.length > 0 && symbols.every((s) => this.sparks.has(s))) {
+    if (symbols.length === 0) {
+      return;
+    }
+    if (!isTradingTime() && symbols.every((s) => this.sparks.has(s))) {
       return;
     }
     this.refreshingMinute = true;
@@ -257,60 +315,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<style>
-:root{--up:#E15241;--down:#2EA46E}
-@media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
-body.boss{filter:grayscale(1)}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px}
-.row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
-.row:hover{background:var(--vscode-list-hoverBackground)}
-.row.drag{opacity:.4}
-.row.drop{border-top:2px solid var(--vscode-focusBorder)}
-.handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
-.handle:active{cursor:grabbing}
-.left{flex:0 0 90px;width:90px;max-width:90px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
-.right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
-.name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
-.price{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
-.pct{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
-.spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px;transition:opacity .12s ease}
-.row:hover .spark polyline:not(.glow){stroke-width:1.6}
-@media (prefers-reduced-motion:reduce){.row,.spark{transition:none}}
-.spark polyline{fill:none;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
-.spark path.area{fill:none;opacity:.8}
-.spark.up path.area{fill:url(#gUp)}
-.spark.down path.area{fill:url(#gDown)}
-.row:hover .spark path.area{opacity:1}
-.spark line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:3 2;opacity:.45;vector-effect:non-scaling-stroke}
-.spark.up polyline{stroke:var(--up)}
-.spark.down polyline{stroke:var(--down)}
-.spark.flat polyline{stroke:var(--vscode-descriptionForeground)}
-.del{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;font-size:13px;padding:0;transition:max-width .15s ease,opacity .15s ease}
-body.editing .del{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
-.del:hover{color:var(--vscode-errorForeground)}
-.pin{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;padding:0;line-height:0;transition:max-width .15s ease,opacity .15s ease}
-body.editing .pin{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
-.pin svg{vertical-align:middle;display:block}
-.pin.on{color:#d4a017}
-.pin:hover{color:var(--vscode-textLink-foreground)}
-.top{flex:0 0 auto;max-width:0;overflow:hidden;color:var(--vscode-descriptionForeground);opacity:0;cursor:pointer;background:none;border:none;padding:0;line-height:0;transition:max-width .15s ease,opacity .15s ease}
-body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
-.top svg{vertical-align:middle;display:block}
-.top.on{color:#d4a017}
-.top:hover{color:var(--vscode-textLink-foreground)}
-.ctxmenu{position:fixed;z-index:1000;min-width:150px;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground);border:1px solid var(--vscode-menu-border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);padding:4px 0;font-size:12px}
-.ctxmenu .item{padding:5px 14px;cursor:pointer;user-select:none}
-.ctxmenu .item:hover{background:var(--vscode-menu-selectionBackground);color:var(--vscode-menu-selectionForeground)}
-.ctxmenu .item.danger:hover{color:var(--vscode-errorForeground)}
-.ctxmenu .sep{height:1px;background:var(--vscode-menu-separatorBackground);margin:4px 8px}
-.up{color:var(--up)}
-.down{color:var(--down)}
-.flat{color:var(--vscode-descriptionForeground)}
-.msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
-.warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
-</style>
+<style>${WEBVIEW_CSS}</style>
 </head>
 <body>
 <svg width="0" height="0" aria-hidden="true"><defs><linearGradient id="gUp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--up);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--up);stop-opacity:0"/></linearGradient><linearGradient id="gDown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--down);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--down);stop-opacity:0"/></linearGradient></defs></svg>
