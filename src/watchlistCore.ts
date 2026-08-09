@@ -36,9 +36,17 @@ export class WatchlistCore {
   }
 
   reorder(symbols: string[]): void {
-    const valid = symbols.filter((s) => typeof s === 'string' && this.symbols.includes(s));
+    const valid: string[] = [];
+    const seen = new Set<string>();
+    for (const s of symbols) {
+      if (typeof s === 'string' && this.symbols.includes(s) && !seen.has(s)) {
+        seen.add(s);
+        valid.push(s);
+      }
+    }
     for (const s of this.symbols) {
-      if (!valid.includes(s)) {
+      if (!seen.has(s)) {
+        seen.add(s);
         valid.push(s);
       }
     }

@@ -31,6 +31,18 @@ describe('WatchlistCore', () => {
     core.reorder(['c', 'b']);
     expect(core.getAll()).toEqual(['c', 'b', 'a']);
   });
+
+  it('reorder dedupes repeated symbols', () => {
+    const core = new WatchlistCore(['a', 'b', 'c'], () => {});
+    core.reorder(['c', 'c', 'a']);
+    expect(core.getAll()).toEqual(['c', 'a', 'b']);
+  });
+
+  it('reorder preserves unique members', () => {
+    const core = new WatchlistCore(['a', 'b', 'c'], () => {});
+    expect(core.has('b')).toBe(true);
+    expect(core.has('zzz')).toBe(false);
+  });
 });
 
 describe('reconcileSubset', () => {

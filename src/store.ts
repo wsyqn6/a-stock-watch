@@ -35,6 +35,7 @@ export class Store implements vscode.Disposable {
         : [];
       const seeds = legacyList.length > 0 ? legacyList : [...DEFAULT_SYMBOLS];
       void config.update(WATCHLIST_KEY, seeds, vscode.ConfigurationTarget.Global);
+      void context.globalState.update(LEGACY_KEY, undefined);
       return new Store(seeds);
     }
     return new Store();
