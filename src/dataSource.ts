@@ -64,9 +64,11 @@ export function parseKlineResponse(
     return [];
   }
   const data = (root as { data?: Record<string, unknown> } | null)?.data;
-  const key = period === 'day' ? 'qfqday' : period === 'week' ? 'qfqweek' : 'qfqmonth';
   const node = data?.[symbol] as Record<string, string[][]> | undefined;
-  const rows = node?.[key] ?? [];
+  // 指数（sh000001/sz399001 等）无复权，接口只返回 day/week/month 键；
+  // 个股返回 qfqday/qfqweek/qfqmonth。优先取 qfq 键，缺则回退非前缀键。
+  const prefixed = period === 'day' ? 'qfqday' : period === 'week' ? 'qfqweek' : 'qfqmonth';
+  const rows = node?.[prefixed] ?? node?.[period] ?? [];
   return rows
     .map((r) => ({
       date: r[0],
@@ -353,6 +355,35 @@ const CHART_GAP = 6;
 const CHART_TOTAL_H = CHART_MAIN_H + CHART_GAP + CHART_VOL_H;
 const CHART_Y_DIVS = 4;
 
+interface ChartScale {
+  yMin: number;
+  yMax: number;
+  y: (p: number) => number;
+  yTicks: { y: number; label: string }[];
+}
+
+/** 构建主图纵向比例尺（含刻度标签）。reversed 控制标签方向：true=刻度顶为最大值（K线），false=底为最小值（分时）。 */
+function buildChartScale(lo: number, hi: number, reversed: boolean): ChartScale {
+  let min = lo;
+  let max = hi;
+  if (max - min < 1e-9) {
+    max += 1;
+    min -= 1;
+  }
+  const pad = (max - min) * 0.05;
+  const yMin = min - pad;
+  const yMax = max + pad;
+  const y = (p: number) => CHART_MAIN_H - ((p - yMin) / (yMax - yMin)) * CHART_MAIN_H;
+  const yTicks = Array.from({ length: CHART_Y_DIVS + 1 }, (_, i) => {
+    const ratio = reversed ? (CHART_Y_DIVS - i) / CHART_Y_DIVS : i / CHART_Y_DIVS;
+    return {
+      y: (CHART_MAIN_H * i) / CHART_Y_DIVS,
+      label: (yMin + (yMax - yMin) * ratio).toFixed(2),
+    };
+  });
+  return { yMin, yMax, y, yTicks };
+}
+
 export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteChartLayout | null {
   const series = buildMinuteSeries(data);
   if (series.length < 2) {
@@ -376,14 +407,7 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
       hi = Math.max(hi, p.avg);
     }
   }
-  if (hi - lo < 1e-9) {
-    hi += 1;
-    lo -= 1;
-  }
-  const pad = (hi - lo) * 0.05;
-  const yMin = lo - pad;
-  const yMax = hi + pad;
-  const y = (p: number) => CHART_MAIN_H - ((p - yMin) / (yMax - yMin)) * CHART_MAIN_H;
+  const { y, yTicks } = buildChartScale(lo, hi, false);
   const priceLine = series
     .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.price).toFixed(1)}`)
     .join(' ');
@@ -408,10 +432,6 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
     },
   );
   const xTicks = [0, 60, 120, 180, 240].map((sm) => ({ x: x(sm), label: smLabel(sm) }));
-  const yTicks = Array.from({ length: CHART_Y_DIVS + 1 }, (_, i) => ({
-    y: (CHART_MAIN_H * i) / CHART_Y_DIVS,
-    label: (yMin + ((yMax - yMin) * i) / CHART_Y_DIVS).toFixed(2),
-  }));
   const pts = series.map((p) => {
     const sx = x(sessionMinute(p.time));
     return {
@@ -540,10 +560,15 @@ export interface KlineLayout {
   lastPrice: number;
 }
 
+/** K线单根蜡烛最大宽度（px，viewBox 单位）。数据少时限制宽度，避免单根蜡烛撑满整图。 */
+const CANDLE_W_MAX = 14;
+/** 相邻刻度最小像素间隔，低于此则跳标，防止 x 轴文字重叠。 */
+const MIN_TICK_PX = 56;
+
 export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
   const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
   const n = klines.length;
-  const cw = plotW / n;
+  const cw = Math.min(plotW / n, CANDLE_W_MAX);
   const bw = cw * 0.65;
 
   let lo = Infinity;
@@ -554,25 +579,14 @@ export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
     if (k.high > hi) hi = k.high;
     if (k.volume > vmax) vmax = k.volume;
   }
-  if (hi - lo < 1e-9) {
-    hi += 1;
-    lo -= 1;
-  }
-  const pad = (hi - lo) * 0.05;
-  const yMin = lo - pad;
-  const yMax = hi + pad;
-  const y = (p: number) => CHART_MAIN_H - ((p - yMin) / (yMax - yMin)) * CHART_MAIN_H;
+  const { y, yTicks } = buildChartScale(lo, hi, true);
 
-  const labelStep = Math.max(1, Math.floor(n / 5));
+  // 按像素间隔稀疏刻度，避免少数据时 label 拥挤重叠。
+  const labelStep = Math.max(1, Math.floor(MIN_TICK_PX / cw));
   const xTicks: { x: number; label: string }[] = [];
   for (let i = 0; i < n; i += labelStep) {
     xTicks.push({ x: CHART_PAD_L + i * cw + cw / 2, label: klines[i].date.slice(5) });
   }
-
-  const yTicks = Array.from({ length: CHART_Y_DIVS + 1 }, (_, i) => ({
-    y: (CHART_MAIN_H * i) / CHART_Y_DIVS,
-    label: (yMin + ((yMax - yMin) * (CHART_Y_DIVS - i)) / CHART_Y_DIVS).toFixed(2),
-  }));
 
   const candles: KlineCandle[] = [];
   const volBars: KlineLayout['volBars'] = [];
