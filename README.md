@@ -89,12 +89,6 @@ bun test          # 运行测试
 bun run package   # 打包 .vsix
 ```
 
-## 安装
-
-VS Code 扩展市场搜索「A股速览」，或访问插件主页直接安装：
-
-[A股速览 - Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=wsyqn6.a-stock-watch)
-
 ## License
 
 [MIT](LICENSE)
