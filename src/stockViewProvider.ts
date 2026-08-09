@@ -4,6 +4,7 @@ import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 import { orderQuotes, SortMode } from './order';
 import { MinuteDetailPanel } from './minuteDetailPanel';
+import { getNonce } from './util';
 
 export interface QuoteViewItem {
   sym: string;
@@ -456,8 +457,4 @@ function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean, pinn
     inBar,
     pinned,
   };
-}
-
-function getNonce(): string {
-  return Math.random().toString(36).slice(2);
 }
