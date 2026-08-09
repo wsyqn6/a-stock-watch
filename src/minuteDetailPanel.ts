@@ -2,13 +2,20 @@ import * as vscode from 'vscode';
 import {
   StockQuote,
   MinuteChartLayout,
+  KlineLayout,
+  KlinePeriod,
   fetchQuotes,
+  fetchKline,
   getMinuteCached,
   buildMinuteChart,
+  buildKlineLayout,
+  clearKlineCache,
   isTradingTime,
+  KLINE_CANDLE_COUNT,
 } from './dataSource';
 
 const REFRESH_INTERVAL_MS = 10_000;
+const KLINE_PERIODS: KlinePeriod[] = ['day', 'week', 'month'];
 
 export class MinuteDetailPanel {
   public static readonly viewType = 'aStockWatch.detail';
@@ -32,7 +39,7 @@ export class MinuteDetailPanel {
     }
     const panel = vscode.window.createWebviewPanel(
       MinuteDetailPanel.viewType,
-      '分时走势',
+      '走势',
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true },
     );
@@ -50,6 +57,7 @@ export class MinuteDetailPanel {
   private minuteDate = '';
   private volTotal = 0;
   private amtTotal = 0;
+  private klineLayouts = new Map<KlinePeriod, KlineLayout>();
   private error: string | null = null;
   private ready = false;
   private pendingLoad = false;
@@ -65,8 +73,11 @@ export class MinuteDetailPanel {
     panel.webview.options = { enableScripts: true };
     panel.webview.html = this.html();
     panel.webview.onDidReceiveMessage((msg) => {
-      const type = (msg as { type?: string } | null)?.type;
-      if (type === 'ready') {
+      const m = msg as { type?: string; period?: KlinePeriod } | null;
+      if (!m) {
+        return;
+      }
+      if (m.type === 'ready') {
         this.ready = true;
         if (this.pendingLoad) {
           this.pendingLoad = false;
@@ -74,6 +85,8 @@ export class MinuteDetailPanel {
         } else {
           this.push();
         }
+      } else if (m.type === 'needKline' && m.period) {
+        void this.ensureKline(m.period);
       }
     });
     this.disposeSub = panel.onDidDispose(() => this.onDispose());
@@ -111,6 +124,8 @@ export class MinuteDetailPanel {
         // 切换标的时丢弃旧图与错误，避免上一次成功的布局泄漏到新标的
         this.layout = null;
         this.error = null;
+        this.klineLayouts.clear();
+        clearKlineCache(symbol);
       }
       this.symbol = symbol;
       this.quote = quote;
@@ -171,7 +186,7 @@ export class MinuteDetailPanel {
       this.push();
       return;
     }
-    this.panel.title = `${q.name ?? this.symbol} · 分时`;
+    this.panel.title = `${q.name ?? this.symbol} · 走势`;
     try {
       const { data } = await getMinuteCached(this.symbol);
       const layout = buildMinuteChart(data, q.prevClose);
@@ -200,6 +215,33 @@ export class MinuteDetailPanel {
     this.push();
   }
 
+  /** 按需拉取并缓存指定周期的 K 线布局（命中缓存则不重复请求）。 */
+  private async ensureKline(period: KlinePeriod): Promise<void> {
+    if (!this.ready) {
+      return;
+    }
+    if (this.klineLayouts.has(period)) {
+      return;
+    }
+    try {
+      const all = await fetchKline(this.symbol, 300, period);
+      const sliced = all.slice(-KLINE_CANDLE_COUNT);
+      if (sliced.length < 2) {
+        void this.panel.webview.postMessage({ type: 'kline', period, error: 'K线数据不足' });
+        return;
+      }
+      const layout = buildKlineLayout(sliced);
+      this.klineLayouts.set(period, layout);
+      void this.panel.webview.postMessage({ type: 'kline', period, layout });
+    } catch (err) {
+      void this.panel.webview.postMessage({
+        type: 'kline',
+        period,
+        error: err instanceof Error ? err.message : '加载失败',
+      });
+    }
+  }
+
   private push(): void {
     if (!this.ready) {
       return;
@@ -218,7 +260,13 @@ export class MinuteDetailPanel {
       high: q?.high,
       low: q?.low,
       trend: q?.trend ?? 'flat',
+      turnoverRate: q?.turnoverRate,
+      pe: q?.pe,
+      pb: q?.pb,
+      circMcap: q?.circMcap,
+      totalMcap: q?.totalMcap,
       layout: this.layout,
+      klineLayouts: Object.fromEntries(this.klineLayouts),
       volTotal: this.volTotal,
       amtTotal: this.amtTotal,
       minuteDate: this.minuteDate,
@@ -271,7 +319,8 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .head .cd{font-size:11px;color:var(--vscode-descriptionForeground)}
 .head .px{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;margin-left:auto}
 .head .chg{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;line-height:1.3}
-.stats{display:flex;flex-wrap:wrap;gap:4px 14px;padding:2px 12px 8px;font-size:11px;color:var(--vscode-descriptionForeground)}
+.stats{display:flex;flex-wrap:wrap;gap:4px 14px;padding:2px 12px 0;font-size:11px;color:var(--vscode-descriptionForeground)}
+.stats + .stats{padding-bottom:6px}
 .stats b{color:var(--vscode-foreground);font-weight:500;font-variant-numeric:tabular-nums}
 .chart-wrap{position:relative;margin:0 6px}
 .chart{display:block;width:100%;height:auto;cursor:crosshair}
@@ -296,6 +345,15 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .tip{position:absolute;display:none;min-width:130px;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground);border:1px solid var(--vscode-menu-border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);padding:6px 8px;font-size:11px;pointer-events:none;line-height:1.5;z-index:10}
 .tip .row{display:flex;justify-content:space-between;gap:12px}
 .tip .row b{font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:2px;padding:0 12px 6px;border-bottom:1px solid var(--vscode-editorWidget-border)}
+.tabs button{flex:1;max-width:110px;background:none;border:none;color:var(--vscode-descriptionForeground);font-size:12px;padding:5px 0;cursor:pointer;border-bottom:2px solid transparent;transition:color .12s ease,border-color .12s ease}
+.tabs button:hover{color:var(--vscode-foreground)}
+.tabs button.on{color:var(--vscode-foreground);border-bottom-color:var(--vscode-focusBorder);font-weight:600}
+.chart .candle line{stroke-width:1;vector-effect:non-scaling-stroke}
+.chart .candle line.up{stroke:var(--up)}
+.chart .candle line.down{stroke:var(--down)}
+.chart .candle rect.up{fill:var(--up);stroke:var(--up)}
+.chart .candle rect.down{fill:var(--down);stroke:var(--down)}
 .msg{padding:24px;color:var(--vscode-descriptionForeground);text-align:center}
 .foot{display:flex;justify-content:space-between;padding:6px 14px 0;font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
 </style>
@@ -312,13 +370,24 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   const cls=function(p,c){ return p>c?'up':p<c?'down':'flat'; };
   const sign=function(n){ return n>=0?'+':''; };
   const hm=function(t){ return t.slice(0,2)+':'+t.slice(2); };
+  const TABS=['分时','日K','周K','月K'];
   let last=null;
+  let sym=null;
+  let state={tab:'分时',klines:{}};
   api.postMessage({type:'ready'});
   window.addEventListener('message',e=>{
     const m=e.data;
-    if(!m||m.type!=='data')return;
-    last=m;
-    render(m);
+    if(!m)return;
+    if(m.type==='data'){
+      if(m.symbol!==sym){ sym=m.symbol; state={tab:'分时',klines:{}}; }
+      if(m.klineLayouts) state.klines=m.klineLayouts;
+      last=m;
+      render(m);
+    } else if(m.type==='kline'){
+      if(m.error){ state.klines[m.period]={error:m.error}; }
+      else { state.klines[m.period]=m.layout; }
+      render(last);
+    }
   });
   function render(m){
     try {
@@ -334,20 +403,50 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
         '<div class="head"><span class="nm">'+m.name+'</span><span class="cd">'+m.code+'</span>'+
         '<span class="px '+pxCls+'">'+price.toFixed(2)+'</span>'+
         '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span></div>';
-      const stats=
+      const row1=
         '<div class="stats">'+
         (m.open!=null?'<span>今开 <b>'+m.open.toFixed(2)+'</b></span>':'')+
         (m.high!=null?'<span>最高 <b>'+m.high.toFixed(2)+'</b></span>':'')+
         (m.low!=null?'<span>最低 <b>'+m.low.toFixed(2)+'</b></span>':'')+
         '<span>昨收 <b>'+prevClose.toFixed(2)+'</b></span>'+
-        '<span>成交量 <b>'+fmtVol(vol)+'</b></span>'+
-        '<span>成交额 <b>'+fmtAmt(m.amtTotal)+'</b></span></div>';
-      app.innerHTML=head+stats+chartSVG(m);
-      bindChart(m);
+        (state.tab==='分时'?'<span>成交量 <b>'+fmtVol(vol)+'</b></span><span>成交额 <b>'+fmtAmt(m.amtTotal)+'</b></span>':'')+
+        '</div>';
+      const row2=
+        '<div class="stats">'+
+        (m.turnoverRate!=null?'<span>换手 <b>'+m.turnoverRate.toFixed(2)+'%</b></span>':'')+
+        (m.pe!=null?'<span>市盈率 <b>'+m.pe.toFixed(2)+'</b></span>':'')+
+        (m.pb!=null?'<span>市净率 <b>'+m.pb.toFixed(2)+'</b></span>':'')+
+        (m.totalMcap!=null?'<span>总市值 <b>'+fmtAmt(m.totalMcap)+'</b></span>':'')+
+        (m.circMcap!=null?'<span>流通市值 <b>'+fmtAmt(m.circMcap)+'</b></span>':'')+
+        '</div>';
+      const tabs='<div class="tabs">'+TABS.map(t=>'<button data-tab="'+t+'" class="'+(t===state.tab?'on':'')+'">'+t+'</button>').join('')+'</div>';
+      const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
+      app.innerHTML=head+row1+row2+tabs+body;
+      bindTabs();
+      if(state.tab==='分时') bindChart(m);
+      else bindKline(state.tab);
     } catch (e) {
       app.innerHTML='<div class="msg">渲染失败: '+(e&&e.message?e.message:String(e))+'</div>';
       console.error('AStockDetail render error', e);
     }
+  }
+  function bindTabs(){
+    app.querySelectorAll('.tabs button').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        state.tab=btn.dataset.tab;
+        if(state.tab!=='分时'){
+          const p=periodFor(state.tab);
+          if(p&&!state.klines[p]) api.postMessage({type:'needKline',period:p});
+        }
+        render(last);
+      });
+    });
+  }
+  function periodFor(tab){
+    if(tab==='日K')return 'day';
+    if(tab==='周K')return 'week';
+    if(tab==='月K')return 'month';
+    return null;
   }
   function chartSVG(m){
     const L=m.layout;
@@ -411,6 +510,71 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
         if(d<dd){dd=d;best=i;}
       }
       show(best);
+    });
+    svg.addEventListener('mouseleave',()=>{ cross.style.display='none'; tip.style.display='none'; });
+  }
+  function klineSVG(tab){
+    const K=state.klines[periodFor(tab)];
+    if(!K) return '<div class="msg">加载K线…</div>';
+    if(K.error) return '<div class="msg">'+K.error+'</div>';
+    const W=K.width,H=K.totalH,plotW=W-K.volH;
+    const gridH=K.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+plotW+'" y2="'+t.y+'"></line>').join('');
+    const yLab=K.yTicks.map(t=>'<text x="'+(plotW+4)+'" y="'+(t.y+3)+'" dominant-baseline="hanging">'+t.label+'</text>').join('');
+    const xLab=K.xTicks.map(t=>'<text x="'+t.x+'" y="'+(H-3)+'" text-anchor="middle">'+t.label+'</text>').join('');
+    const candles=K.candles.map(c=>{
+      const wick='<line x1="'+(c.x+c.w/2)+'" y1="'+c.wickY1+'" x2="'+(c.x+c.w/2)+'" y2="'+c.wickY2+'" class="'+c.cls+'"></line>';
+      return '<g class="candle">'+wick+'<rect x="'+c.x+'" y="'+c.bodyY+'" width="'+c.w+'" height="'+Math.max(c.bodyH,1)+'" class="'+c.cls+'" rx="0"></rect></g>';
+    }).join('');
+    const volBars=K.volBars.map(b=>'<rect class="v '+b.cls+'" x="'+b.x.toFixed(1)+'" y="'+b.y.toFixed(1)+'" width="'+b.w.toFixed(2)+'" height="'+b.h.toFixed(1)+'"></rect>').join('');
+    return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
+      '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+      gridH+yLab+
+      '<g id="candles">'+candles+'</g>'+
+      '<g id="vol">'+volBars+'</g>'+
+      '<line class="base" x1="0" y1="'+K.mainH+'" x2="'+plotW+'" y2="'+K.mainH+'"></line>'+
+      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><circle id="cp" class="p" r="3.5"></circle></g>'+
+      xLab+
+      '</svg></div>';
+  }
+  function bindKline(){
+    const K=state.klines[periodFor(state.tab)];
+    const svg=document.getElementById('chart');
+    if(!K||!svg)return;
+    const cross=document.getElementById('cross');
+    const cx=document.getElementById('cx');
+    const cp=document.getElementById('cp');
+    const tip=document.getElementById('tip');
+    const W=K.width;
+    svg.addEventListener('mousemove',e=>{
+      const r=svg.getBoundingClientRect();
+      const sx=(e.clientX-r.left)/r.width*W;
+      let best=0,dd=Infinity;
+      for(let i=0;i<K.candles.length;i++){
+        const ccx=K.candles[i].x+K.candles[i].w/2;
+        const d=Math.abs(ccx-sx);
+        if(d<dd){dd=d;best=i;}
+      }
+      const c=K.candles[best];
+      if(!c)return;
+      const cxPos=c.x+c.w/2;
+      cross.style.display='';
+      cx.setAttribute('x1',cxPos); cx.setAttribute('x2',cxPos);
+      cp.setAttribute('cx',cxPos); cp.setAttribute('cy',c.bodyY+c.bodyH/2);
+      cp.className.baseVal='p '+c.cls;
+      tip.style.display='block';
+      tip.innerHTML=
+        '<div class="row"><span>'+c.date+'</span></div>'+
+        '<div class="row"><span>开</span><b>'+c.open.toFixed(2)+'</b></div>'+
+        '<div class="row"><span>收</span><b class="'+c.cls+'">'+c.close.toFixed(2)+'</b></div>'+
+        '<div class="row"><span>高</span><b>'+c.high.toFixed(2)+'</b></div>'+
+        '<div class="row"><span>低</span><b>'+c.low.toFixed(2)+'</b></div>'+
+        '<div class="row"><span>量</span><b>'+fmtVol(c.volume)+'</b></div>';
+      const frac=cxPos/W;
+      const rw=svg.parentNode.getBoundingClientRect();
+      const tw=tip.offsetWidth;
+      const tx=frac*rw.width+(rw.width*(1/W)*4);
+      tip.style.left=Math.min(Math.max(0,tx-tw/2),rw.width-tw-4)+'px';
+      tip.style.top='6px';
     });
     svg.addEventListener('mouseleave',()=>{ cross.style.display='none'; tip.style.display='none'; });
   }

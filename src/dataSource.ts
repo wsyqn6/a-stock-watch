@@ -1,5 +1,84 @@
 import { fetchWithTimeout } from './http';
 
+export interface KlinePoint {
+  date: string;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volume: number;
+}
+
+const KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=';
+
+export type KlinePeriod = 'day' | 'week' | 'month';
+
+export const KLINE_CANDLE_COUNT = 60;
+
+const klineCache = new Map<string, { data: KlinePoint[]; ts: number }>();
+const KLINE_TTL_MS = 60_000;
+
+export async function fetchKline(
+  symbol: string,
+  count = 300,
+  period: KlinePeriod = 'day',
+): Promise<KlinePoint[]> {
+  const cacheKey = `${symbol}|${period}`;
+  const hit = klineCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < KLINE_TTL_MS) {
+    return hit.data;
+  }
+  const url = KLINE_URL + encodeURIComponent(`${symbol},${period},,,${count},qfq`);
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) {
+    throw new Error(`K线接口返回 ${res.status}`);
+  }
+  const text = await res.text();
+  const data = parseKlineResponse(text, symbol, period);
+  klineCache.set(cacheKey, { data, ts: Date.now() });
+  return data;
+}
+
+export function clearKlineCache(symbol?: string): void {
+  if (symbol) {
+    const prefix = `${symbol}|`;
+    for (const key of [...klineCache.keys()]) {
+      if (key.startsWith(prefix)) {
+        klineCache.delete(key);
+      }
+    }
+    return;
+  }
+  klineCache.clear();
+}
+
+export function parseKlineResponse(
+  text: string,
+  symbol: string,
+  period: KlinePeriod = 'day',
+): KlinePoint[] {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const data = (root as { data?: Record<string, unknown> } | null)?.data;
+  const key = period === 'day' ? 'qfqday' : period === 'week' ? 'qfqweek' : 'qfqmonth';
+  const node = data?.[symbol] as Record<string, string[][]> | undefined;
+  const rows = node?.[key] ?? [];
+  return rows
+    .map((r) => ({
+      date: r[0],
+      open: Number(r[1]),
+      close: Number(r[2]),
+      high: Number(r[3]),
+      low: Number(r[4]),
+      volume: Number(r[5]),
+    }))
+    .filter((p) => p.close > 0);
+}
+
 export interface StockQuote {
   symbol: string;
   name: string;
@@ -12,9 +91,44 @@ export interface StockQuote {
   changePct: number;
   trend: 'up' | 'down' | 'flat';
   date: string;
+  /** 换手率 % */
+  turnoverRate?: number;
+  /** 市盈率 TTM */
+  pe?: number;
+  /** 市净率 */
+  pb?: number;
+  /** 流通市值（元） */
+  circMcap?: number;
+  /** 总市值（元） */
+  totalMcap?: number;
 }
 
 const TENCENT_URL = 'https://qt.gtimg.cn/q=';
+/** 腾讯行情 `~` 分隔字段的索引（保持与接口约定一致，便于维护）。 */
+const F = {
+  name: 1,
+  code: 2,
+  price: 3,
+  prevClose: 4,
+  open: 5,
+  date: 30,
+  change: 31,
+  changePct: 32,
+  high: 33,
+  low: 34,
+  turnover: 38,
+  pe: 39,
+  circMcapYi: 44,
+  totalMcapYi: 45,
+  pb: 46,
+};
+const MIN_FIELDS = F.high; // 至少含到最高价字段（索引33）即可解析，high/low 可能缺失
+
+/** 转为有效正数；无效（NaN/0/负数）返回 undefined。 */
+function toFinitePos(v: string | undefined): number | undefined {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
 
 export async function fetchQuotes(symbols: string[]): Promise<StockQuote[]> {
   if (symbols.length === 0) {
@@ -39,35 +153,42 @@ export function parseTencentResponse(text: string): StockQuote[] {
   while ((m = re.exec(text)) !== null) {
     const symbol = m[1];
     const fields = m[2].split('~');
-    if (fields.length < 33) {
+    if (fields.length < MIN_FIELDS) {
       continue;
     }
-    const name = fields[1];
-    const price = Number(fields[3]);
-    const prevClose = Number(fields[4]);
-    const open = Number(fields[5]);
-    const high = Number(fields[33]);
-    const low = Number(fields[34]);
-    const change = Number(fields[31]);
-    const changePct = Number(fields[32]);
+    const name = fields[F.name];
+    const price = Number(fields[F.price]);
+    const prevClose = Number(fields[F.prevClose]);
     if (!Number.isFinite(price) || !Number.isFinite(prevClose)) {
       continue;
     }
+    const open = toFinitePos(fields[F.open]);
+    const high = toFinitePos(fields[F.high]);
+    const low = toFinitePos(fields[F.low]);
+    const change = Number(fields[F.change]);
+    const changePct = Number(fields[F.changePct]);
     const trend: StockQuote['trend'] =
       changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat';
-    const date = /^\d{8}/.exec(fields[30])?.[0] ?? '';
+    const date = /^\d{8}/.exec(fields[F.date])?.[0] ?? '';
+    const circMcapYi = toFinitePos(fields[F.circMcapYi]);
+    const totalMcapYi = toFinitePos(fields[F.totalMcapYi]);
     quotes.push({
       symbol,
       name,
       price,
       prevClose,
-      open: Number.isFinite(open) ? open : undefined,
-      high: Number.isFinite(high) ? high : undefined,
-      low: Number.isFinite(low) ? low : undefined,
+      open,
+      high,
+      low,
       change,
       changePct,
       trend,
       date,
+      turnoverRate: toFinitePos(fields[F.turnover]),
+      pe: toFinitePos(fields[F.pe]),
+      pb: toFinitePos(fields[F.pb]),
+      circMcap: circMcapYi !== undefined ? circMcapYi * 1e8 : undefined,
+      totalMcap: totalMcapYi !== undefined ? totalMcapYi * 1e8 : undefined,
     });
   }
   return quotes;
@@ -389,4 +510,102 @@ function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {
     out.push(last);
   }
   return out;
+}
+
+export interface KlineCandle {
+  x: number;
+  w: number;
+  bodyY: number;
+  bodyH: number;
+  wickY1: number;
+  wickY2: number;
+  cls: 'up' | 'down';
+  date: string;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volume: number;
+}
+
+export interface KlineLayout {
+  width: number;
+  totalH: number;
+  mainH: number;
+  volH: number;
+  candles: KlineCandle[];
+  volBars: { x: number; w: number; y: number; h: number; cls: 'up' | 'down' }[];
+  xTicks: { x: number; label: string }[];
+  yTicks: { y: number; label: string }[];
+  lastPrice: number;
+}
+
+export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
+  const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
+  const n = klines.length;
+  const cw = plotW / n;
+  const bw = cw * 0.65;
+
+  let lo = Infinity;
+  let hi = -Infinity;
+  let vmax = 0;
+  for (const k of klines) {
+    if (k.low < lo) lo = k.low;
+    if (k.high > hi) hi = k.high;
+    if (k.volume > vmax) vmax = k.volume;
+  }
+  if (hi - lo < 1e-9) {
+    hi += 1;
+    lo -= 1;
+  }
+  const pad = (hi - lo) * 0.05;
+  const yMin = lo - pad;
+  const yMax = hi + pad;
+  const y = (p: number) => CHART_MAIN_H - ((p - yMin) / (yMax - yMin)) * CHART_MAIN_H;
+
+  const labelStep = Math.max(1, Math.floor(n / 5));
+  const xTicks: { x: number; label: string }[] = [];
+  for (let i = 0; i < n; i += labelStep) {
+    xTicks.push({ x: CHART_PAD_L + i * cw + cw / 2, label: klines[i].date.slice(5) });
+  }
+
+  const yTicks = Array.from({ length: CHART_Y_DIVS + 1 }, (_, i) => ({
+    y: (CHART_MAIN_H * i) / CHART_Y_DIVS,
+    label: (yMin + ((yMax - yMin) * (CHART_Y_DIVS - i)) / CHART_Y_DIVS).toFixed(2),
+  }));
+
+  const candles: KlineCandle[] = [];
+  const volBars: KlineLayout['volBars'] = [];
+
+  for (let i = 0; i < n; i++) {
+    const k = klines[i];
+    const x = CHART_PAD_L + i * cw + (cw - bw) / 2;
+    const cls: 'up' | 'down' = k.close >= k.open ? 'up' : 'down';
+    const bodyY = y(Math.max(k.open, k.close));
+    const bodyH = y(Math.min(k.open, k.close)) - bodyY;
+    candles.push({
+      x, w: bw, bodyY, bodyH: Math.max(bodyH, 1),
+      wickY1: y(k.high), wickY2: y(k.low), cls,
+      date: k.date, open: k.open, close: k.close,
+      high: k.high, low: k.low, volume: k.volume,
+    });
+    const vh = k.volume > 0 ? (k.volume / vmax) * (CHART_VOL_H - 2) : 0;
+    volBars.push({
+      x, w: bw,
+      y: CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - vh),
+      h: vh, cls,
+    });
+  }
+
+  return {
+    width: CHART_W,
+    totalH: CHART_TOTAL_H,
+    mainH: CHART_MAIN_H,
+    volH: CHART_VOL_H,
+    candles,
+    volBars,
+    xTicks,
+    yTicks,
+    lastPrice: klines[n - 1].close,
+  };
 }
