@@ -13,9 +13,9 @@ import {
   isTradingTime,
   KLINE_CANDLE_COUNT,
 } from './dataSource';
+import { getNonce } from './util';
 
 const REFRESH_INTERVAL_MS = 10_000;
-const KLINE_PERIODS: KlinePeriod[] = ['day', 'week', 'month'];
 
 export class MinuteDetailPanel {
   public static readonly viewType = 'aStockWatch.detail';
@@ -314,20 +314,23 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .up{color:var(--up)}
 .down{color:var(--down)}
 .flat{color:var(--vscode-descriptionForeground)}
-.head{display:flex;align-items:baseline;gap:10px;padding:10px 12px 6px}
-.head .nm{font-size:15px;font-weight:600}
-.head .cd{font-size:11px;color:var(--vscode-descriptionForeground)}
-.head .px{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;margin-left:auto}
-.head .chg{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;line-height:1.3}
-.stats{display:flex;flex-wrap:wrap;gap:4px 14px;padding:2px 12px 0;font-size:11px;color:var(--vscode-descriptionForeground)}
+.head{display:flex;align-items:baseline;gap:10px;padding:12px 12px 6px}
+.head .nm{font-size:15px;font-weight:600;letter-spacing:.2px}
+.head .cd{font-size:11px;color:var(--vscode-descriptionForeground);padding-left:2px}
+.head .px{font-size:26px;font-weight:600;letter-spacing:-.5px;font-variant-numeric:tabular-nums;margin-left:auto}
+.head .chg{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;line-height:1.3;min-width:56px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:3px 8px;padding:2px 12px 0;font-size:11px;color:var(--vscode-descriptionForeground)}
 .stats + .stats{padding-bottom:6px}
-.stats b{color:var(--vscode-foreground);font-weight:500;font-variant-numeric:tabular-nums}
+.stats span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats b{color:var(--vscode-foreground);font-weight:600;font-variant-numeric:tabular-nums}
 .chart-wrap{position:relative;margin:0 6px}
 .chart{display:block;width:100%;height:auto;cursor:crosshair}
 .chart line.grid{stroke:var(--vscode-editorWidget-border);stroke-width:1;opacity:.6;vector-effect:non-scaling-stroke}
 .chart line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:4 3;opacity:.55;vector-effect:non-scaling-stroke}
 .chart polyline.avg{fill:none;stroke:var(--avg);stroke-width:1.4;stroke-dasharray:5 3;vector-effect:non-scaling-stroke}
-.chart polyline.price{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.chart polyline.price{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;transition:stroke-width .12s ease}
+.chart-wrap:hover polyline.price{stroke-width:2}
+@media (prefers-reduced-motion:reduce){.chart polyline.price{transition:none}}
 .chart polyline.price.up{stroke:var(--up)}
 .chart polyline.price.down{stroke:var(--down)}
 .chart polyline.price.flat{stroke:var(--vscode-descriptionForeground)}
@@ -343,12 +346,12 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .chart .cross circle.p.flat{stroke:var(--vscode-descriptionForeground)}
 .chart .cross circle.a{stroke:var(--avg)}
 .tip{position:absolute;display:none;min-width:130px;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground);border:1px solid var(--vscode-menu-border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);padding:6px 8px;font-size:11px;pointer-events:none;line-height:1.5;z-index:10}
-.tip .row{display:flex;justify-content:space-between;gap:12px}
-.tip .row b{font-variant-numeric:tabular-nums}
-.tabs{display:flex;gap:2px;padding:0 12px 6px;border-bottom:1px solid var(--vscode-editorWidget-border)}
-.tabs button{flex:1;max-width:110px;background:none;border:none;color:var(--vscode-descriptionForeground);font-size:12px;padding:5px 0;cursor:pointer;border-bottom:2px solid transparent;transition:color .12s ease,border-color .12s ease}
-.tabs button:hover{color:var(--vscode-foreground)}
-.tabs button.on{color:var(--vscode-foreground);border-bottom-color:var(--vscode-focusBorder);font-weight:600}
+.tip .row{display:flex;justify-content:space-between;gap:14px;align-items:baseline}
+.tip .row b{font-variant-numeric:tabular-nums;font-weight:600}
+.tabs{display:flex;gap:2px;padding:6px 12px 0;border-bottom:1px solid var(--vscode-editorWidget-border)}
+.tabs button{flex:1;max-width:110px;background:none;border:none;color:var(--vscode-descriptionForeground);font-size:12px;padding:6px 0;cursor:pointer;border-radius:4px 4px 0 0;border-bottom:2px solid transparent;transition:color .12s ease,border-color .12s ease,background .12s ease}
+.tabs button:hover{color:var(--vscode-foreground);background:var(--vscode-list-hoverBackground)}
+.tabs button.on{color:var(--vscode-foreground);border-bottom-color:var(--vscode-focusBorder);font-weight:600;background:var(--vscode-list-hoverBackground)}
 .chart .candle line{stroke-width:1;vector-effect:non-scaling-stroke}
 .chart .candle line.up{stroke:var(--up)}
 .chart .candle line.down{stroke:var(--down)}
@@ -366,7 +369,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   const api=acquireVsCodeApi();
   const AXIS_R=46;
   const fmtVol=function(v){ if(v>=10000) return (v/10000).toFixed(2)+'万手'; return Math.round(v)+'手'; };
-  const fmtAmt=function(v){ if(v>=1e8) return (v/1e8).toFixed(2)+'亿'; if(v>=1e4) return (v/1e4).toFixed(2)+'万'; return Math.round(v); };
+  const fmtAmt=function(v){ if(v>=1e12) return (v/1e12).toFixed(2)+'万亿'; if(v>=1e8) return (v/1e8).toFixed(2)+'亿'; if(v>=1e4) return (v/1e4).toFixed(2)+'万'; return Math.round(v); };
   const cls=function(p,c){ return p>c?'up':p<c?'down':'flat'; };
   const sign=function(n){ return n>=0?'+':''; };
   const hm=function(t){ return t.slice(0,2)+':'+t.slice(2); };
@@ -583,8 +586,4 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 </body>
 </html>`;
   }
-}
-
-function getNonce(): string {
-  return Math.random().toString(36).slice(2);
 }
