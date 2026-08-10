@@ -179,7 +179,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async refreshMinute(pushChanges = true): Promise<void> {
+  private async refreshMinute(): Promise<void> {
     if (!this.view?.visible || this.refreshingMinute) {
       return;
     }
@@ -222,7 +222,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
           }
         }),
       );
-      if (dirty && pushChanges) {
+      if (dirty) {
         this.push();
       }
     } finally {
@@ -290,8 +290,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         this.warn = missing.length > 0 ? `未获取到行情：${missing.join(', ')}` : null;
       }
     }
-    await this.refreshMinute(false);
     this.push();
+    void this.refreshMinute();
   }
 
   private ordered(): StockQuote[] {
@@ -355,8 +355,13 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       fitNames();
       bind();
     } else {
-      const bannerEl=app.querySelector('.warn');
-      if(warn&&!bannerEl){app.innerHTML='<div class="warn">'+warn+'</div>'+app.innerHTML;}
+      let bannerEl=app.querySelector('.warn');
+      if(warn&&!bannerEl){
+        bannerEl=document.createElement('div');
+        bannerEl.className='warn';
+        app.insertBefore(bannerEl,app.firstChild);
+      }
+      if(warn&&bannerEl){bannerEl.textContent=warn;}
       else if(!warn&&bannerEl){bannerEl.remove();}
       const rows=app.querySelectorAll('.row');
       items.forEach((it,i)=>{
@@ -395,10 +400,12 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const s=it.spark;
     const color=s&&s.line?s.color:'flat';
     let inner='';
+    let pts='';
     if(s&&s.line){
+      pts=s.line;
       inner='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
     }
-    return '<svg class="spark '+color+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+inner+'</svg>';
+    return '<svg class="spark '+color+'" data-pts="'+pts+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+inner+'</svg>';
   }
   function bind(){
     const rows=Array.from(app.querySelectorAll('.row'));

@@ -124,6 +124,7 @@ export class MinuteDetailPanel {
       if (this.symbol !== symbol) {
         // 切换标的时丢弃旧图与错误，避免上一次成功的布局泄漏到新标的
         this.layout = null;
+        this.layoutFp = '';
         this.error = null;
         this.klineLayouts.clear();
         clearKlineCache(symbol);
@@ -197,21 +198,19 @@ export class MinuteDetailPanel {
         this.error = layout ? null : '分时数据缺失';
         this.layoutFp = fp;
       }
-      if (this.layoutFp === fp) {
-        let vol = 0;
-        let amt = 0;
-        for (const p of data.points) {
-          if (p.vol !== undefined) {
-            vol = p.vol;
-          }
-          if (p.amt !== undefined) {
-            amt = p.amt;
-          }
+      let vol = 0;
+      let amt = 0;
+      for (const p of data.points) {
+        if (p.vol !== undefined) {
+          vol = p.vol;
         }
-        this.volTotal = vol;
-        this.amtTotal = amt;
-        this.minuteDate = data.date;
+        if (p.amt !== undefined) {
+          amt = p.amt;
+        }
       }
+      this.volTotal = vol;
+      this.amtTotal = amt;
+      this.minuteDate = data.date;
     } catch (err) {
       // 同标的刷新失败时保留上一张可用图；切换标的时 layout 已被 load 清空，
       // 走到这里必然置错误提示，避免旧图残留
@@ -403,7 +402,6 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       render(last);
     }
   });
-  let lastLayout=null;
   let lastTab=null;
   let lastChartKey=null;
   const headInner=function(m,pxCls,price,change,changePct){
@@ -439,7 +437,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   function render(m){
     try {
       document.body.classList.toggle('boss',!!m.boss);
-      if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; lastLayout=null; lastTab=null; lastChartKey=null; return; }
+      if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; lastTab=null; lastChartKey=null; return; }
       const price=m.price==null?0:m.price;
       const prevClose=m.prevClose==null?0:m.prevClose;
       const change=m.change==null?0:m.change;
@@ -456,7 +454,6 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
         updateText(m);
         return;
       }
-      lastLayout=m.layout;
       const head='<div class="head" id="head">'+headInner(m,pxCls,price,change,changePct)+'</div>';
       const row1='<div class="stats" id="row1">'+row1Inner(m,prevClose)+'</div>';
       const row2='<div class="stats" id="row2">'+row2Inner(m,vol)+'</div>';
