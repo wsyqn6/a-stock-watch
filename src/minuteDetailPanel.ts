@@ -404,6 +404,8 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     }
   });
   let lastLayout=null;
+  let lastTab=null;
+  let lastChartKey=null;
   const headInner=function(m,pxCls,price,change,changePct){
     return '<span class="nm">'+m.name+'</span><span class="cd">'+m.code+'</span>'+
       '<span class="px '+pxCls+'">'+price.toFixed(2)+'</span>'+
@@ -437,14 +439,20 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   function render(m){
     try {
       document.body.classList.toggle('boss',!!m.boss);
-      if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; lastLayout=null; return; }
+      if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; lastLayout=null; lastTab=null; lastChartKey=null; return; }
       const price=m.price==null?0:m.price;
       const prevClose=m.prevClose==null?0:m.prevClose;
       const change=m.change==null?0:m.change;
       const changePct=m.changePct==null?0:m.changePct;
       const pxCls=cls(price,prevClose);
       const vol=m.volTotal;
-      if(lastLayout===m.layout&&m.layout!==null&&document.getElementById('head')){
+      const kp=state.tab==='分时'?null:periodFor(state.tab);
+      const chartRef=state.tab==='分时'?m.layout:state.klines[kp];
+      const sameTab=state.tab===lastTab;
+      const sameChart=chartRef===lastChartKey;
+      lastTab=state.tab;
+      lastChartKey=chartRef;
+      if(sameTab&&sameChart&&chartRef!==null&&document.getElementById('head')){
         updateText(m);
         return;
       }
