@@ -179,7 +179,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async refreshMinute(): Promise<void> {
+  private async refreshMinute(pushChanges = true): Promise<void> {
     if (!this.view?.visible || this.refreshingMinute) {
       return;
     }
@@ -222,7 +222,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
           }
         }),
       );
-      if (dirty) {
+      if (dirty && pushChanges) {
         this.push();
       }
     } finally {
@@ -290,8 +290,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         this.warn = missing.length > 0 ? `未获取到行情：${missing.join(', ')}` : null;
       }
     }
+    await this.refreshMinute(false);
     this.push();
-    void this.refreshMinute();
   }
 
   private ordered(): StockQuote[] {
@@ -341,18 +341,48 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     render(m.items,m.warn);
   });
   function render(items,warn){
+    const sig=editing+'|'+items.map(it=>it.sym).join(',');
+    if(curSig!==sig){
+      curSig=sig;
+      closeMenu();
+      const banner=warn?'<div class="warn">'+warn+'</div>':'';
+      app.innerHTML=banner+items.map((it,i)=>{
+        const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
+        const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
+        const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
+        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
+      }).join('');
+      fitNames();
+      bind();
+    } else {
+      const bannerEl=app.querySelector('.warn');
+      if(warn&&!bannerEl){app.innerHTML='<div class="warn">'+warn+'</div>'+app.innerHTML;}
+      else if(!warn&&bannerEl){bannerEl.remove();}
+      const rows=app.querySelectorAll('.row');
+      items.forEach((it,i)=>{
+        const row=rows[i];
+        if(!row)return;
+        const pct=row.querySelector('.pct');
+        const price=row.querySelector('.price');
+        if(pct){pct.textContent=it.changePct;pct.className='pct '+it.cls;}
+        if(price){price.textContent=it.price;price.className='price '+it.cls;}
+        const svg=row.querySelector('.spark');
+        const s=it.spark;
+        if(svg&&s&&s.line){
+          const curPts=svg.dataset.pts;
+          if(curPts!==s.line){
+            svg.dataset.pts=s.line;
+            svg.innerHTML='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
+            svg.className='spark '+s.color;
+          }
+        } else if(svg&&(!s||!s.line)){
+          if(svg.innerHTML!==''){svg.innerHTML='';svg.className='spark flat';}
+        }
+      });
+    }
     cur=items;
-    closeMenu();
-    const banner=warn?'<div class="warn">'+warn+'</div>':'';
-    app.innerHTML=banner+items.map((it,i)=>{
-      const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
-      const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
-      const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
-      return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
-    }).join('');
-    fitNames();
-    bind();
   }
+  let curSig=null;
   function fitNames(){
     app.querySelectorAll('.name').forEach(el=>{
       const maxW=el.parentNode.clientWidth;
