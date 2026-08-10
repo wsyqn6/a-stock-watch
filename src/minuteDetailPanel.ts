@@ -307,7 +307,7 @@ export class MinuteDetailPanel {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
 :root{--up:#E15241;--down:#2EA46E;--avg:#d8a33a}
-@media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
+@media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B;--avg:#b07d1f}}
 body.boss{filter:grayscale(1)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:0 0 12px;user-select:none}
@@ -326,15 +326,15 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .chart-wrap{position:relative;margin:0 6px}
 .chart{display:block;width:100%;height:auto;cursor:crosshair}
 .chart line.grid{stroke:var(--vscode-editorWidget-border);stroke-width:1;opacity:.6;vector-effect:non-scaling-stroke}
-.chart line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:4 3;opacity:.55;vector-effect:non-scaling-stroke}
-.chart polyline.avg{fill:none;stroke:var(--avg);stroke-width:1.4;stroke-dasharray:5 3;vector-effect:non-scaling-stroke}
+.chart line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1.5;stroke-dasharray:4 3;opacity:.75;vector-effect:non-scaling-stroke}
+.chart polyline.avg{fill:none;stroke:var(--avg);stroke-width:1.4;vector-effect:non-scaling-stroke}
 .chart polyline.price{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;transition:stroke-width .12s ease}
 .chart-wrap:hover polyline.price{stroke-width:2}
 @media (prefers-reduced-motion:reduce){.chart polyline.price{transition:none}}
 .chart polyline.price.up{stroke:var(--up)}
 .chart polyline.price.down{stroke:var(--down)}
 .chart polyline.price.flat{stroke:var(--vscode-descriptionForeground)}
-.chart rect.v{stroke:none;opacity:.75}
+.chart rect.v{stroke:none;opacity:.45}
 .chart rect.v.up{fill:var(--up)}
 .chart rect.v.down{fill:var(--down)}
 .chart text{fill:var(--vscode-descriptionForeground);font-size:9px}
@@ -345,7 +345,11 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .chart .cross circle.p.down{stroke:var(--down)}
 .chart .cross circle.p.flat{stroke:var(--vscode-descriptionForeground)}
 .chart .cross circle.a{stroke:var(--avg)}
-.tip{position:absolute;display:none;min-width:130px;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground);border:1px solid var(--vscode-menu-border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.3);padding:6px 8px;font-size:11px;pointer-events:none;line-height:1.5;z-index:10}
+.chart circle.end{fill:var(--vscode-editor-background);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.chart circle.end.up{stroke:var(--up)}
+.chart circle.end.down{stroke:var(--down)}
+.chart circle.end.flat{stroke:var(--vscode-descriptionForeground)}
+.tip{position:absolute;display:none;min-width:130px;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground);border:1px solid var(--vscode-menu-border);border-radius:4px;box-shadow:var(--vscode-widget-shadow);padding:6px 8px;font-size:11px;pointer-events:none;line-height:1.5;z-index:10}
 .tip .row{display:flex;justify-content:space-between;gap:14px;align-items:baseline}
 .tip .row b{font-variant-numeric:tabular-nums;font-weight:600}
 .tabs{display:flex;gap:2px;padding:6px 12px 0;border-bottom:1px solid var(--vscode-editorWidget-border)}
@@ -408,20 +412,15 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
         '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span></div>';
       const row1=
         '<div class="stats">'+
-        (m.open!=null?'<span>今开 <b>'+m.open.toFixed(2)+'</b></span>':'')+
-        (m.high!=null?'<span>最高 <b>'+m.high.toFixed(2)+'</b></span>':'')+
-        (m.low!=null?'<span>最低 <b>'+m.low.toFixed(2)+'</b></span>':'')+
+        '<span>今开 <b>'+(m.open!=null?m.open.toFixed(2):'—')+'</b></span>'+
+        '<span>最高 <b>'+(m.high!=null?m.high.toFixed(2):'—')+'</b></span>'+
+        '<span>最低 <b>'+(m.low!=null?m.low.toFixed(2):'—')+'</b></span>'+
         '<span>昨收 <b>'+prevClose.toFixed(2)+'</b></span>'+
-        (state.tab==='分时'?'<span>成交量 <b>'+fmtVol(vol)+'</b></span><span>成交额 <b>'+fmtAmt(m.amtTotal)+'</b></span>':'')+
         '</div>';
-      const row2=
-        '<div class="stats">'+
-        (m.turnoverRate!=null?'<span>换手 <b>'+m.turnoverRate.toFixed(2)+'%</b></span>':'')+
-        (m.pe!=null?'<span>市盈率 <b>'+m.pe.toFixed(2)+'</b></span>':'')+
-        (m.pb!=null?'<span>市净率 <b>'+m.pb.toFixed(2)+'</b></span>':'')+
-        (m.totalMcap!=null?'<span>总市值 <b>'+fmtAmt(m.totalMcap)+'</b></span>':'')+
-        (m.circMcap!=null?'<span>流通市值 <b>'+fmtAmt(m.circMcap)+'</b></span>':'')+
-        '</div>';
+      const r2=state.tab==='分时'
+        ?[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null]]
+        :[['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null],['市净率',m.pb!=null?m.pb.toFixed(2):null],['总市值',m.totalMcap!=null?fmtAmt(m.totalMcap):null]];
+      const row2='<div class="stats">'+r2.map(a=>'<span>'+a[0]+' <b>'+(a[1]!=null?a[1]:'—')+'</b></span>').join('')+'</div>';
       const tabs='<div class="tabs">'+TABS.map(t=>'<button data-tab="'+t+'" class="'+(t===state.tab?'on':'')+'">'+t+'</button>').join('')+'</div>';
       const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
       app.innerHTML=head+row1+row2+tabs+body;
@@ -462,14 +461,17 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     const bars=L.bars.map(b=>'<rect class="v '+b.cls+'" x="'+b.x.toFixed(1)+'" y="'+b.y.toFixed(1)+'" width="'+b.w.toFixed(2)+'" height="'+b.h.toFixed(1)+'"></rect>').join('');
     const pxCls=cls(L.lastPrice,m.prevClose);
     const avgEl=L.avgLine?('<polyline class="avg" points="'+L.avgLine+'"></polyline>'):'';
+    const lastPt=L.pts[L.pts.length-1];
     return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridV+gridH+yLab+
       '<g id="vol">'+bars+'</g>'+
       '<line class="base" x1="0" y1="'+L.baseY+'" x2="'+(W-AXIS_R)+'" y2="'+L.baseY+'"></line>'+
+      '<text x="0" y="'+(L.baseY-4)+'">昨收 '+m.prevClose.toFixed(2)+'</text>'+
       '<polyline class="price '+pxCls+'" points="'+L.priceLine+'"></polyline>'+
+      '<circle class="end '+pxCls+'" cx="'+lastPt.x.toFixed(1)+'" cy="'+lastPt.y.toFixed(1)+'" r="3"></circle>'+
       avgEl+
-      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><circle id="cp" class="p" r="3.5"></circle><circle id="ca" class="a" r="3"></circle></g>'+
+      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+(W-AXIS_R)+'"></line><circle id="cp" class="p" r="3.5"></circle><circle id="ca" class="a" r="3"></circle></g>'+
       xLab+
       '</svg></div>';
   }
@@ -478,6 +480,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     const svg=document.getElementById('chart');
     const cross=document.getElementById('cross');
     const cx=document.getElementById('cx');
+    const cy=document.getElementById('cy');
     const cp=document.getElementById('cp');
     const ca=document.getElementById('ca');
     const tip=document.getElementById('tip');
@@ -487,6 +490,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       if(!p)return;
       cross.style.display='';
       cx.setAttribute('x1',p.x); cx.setAttribute('x2',p.x);
+      cy.setAttribute('y1',p.y); cy.setAttribute('y2',p.y);
       cp.setAttribute('cx',p.x); cp.setAttribute('cy',p.y);
       cp.className.baseVal='p '+cls(p.price,m.prevClose);
       ca.setAttribute('cx',p.x);
@@ -500,21 +504,27 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       const frac=p.x/W;
       const rw=svg.parentNode.getBoundingClientRect();
       const tw=tip.offsetWidth;
-      const tx=frac*rw.width+(rw.width*(1/W)*4);
-      tip.style.left=Math.min(Math.max(0,tx-tw/2),rw.width-tw-4)+'px';
+      const lx=frac*rw.width;
+      const tx=frac<0.5?lx+10:lx-tw-10;
+      tip.style.left=Math.min(Math.max(0,tx),rw.width-tw-4)+'px';
       tip.style.top='6px';
     };
+    let r=svg.getBoundingClientRect();
+    let last=-1,raf=0;
+    svg.addEventListener('mouseenter',()=>{ r=svg.getBoundingClientRect(); });
     svg.addEventListener('mousemove',e=>{
-      const r=svg.getBoundingClientRect();
       const sx=(e.clientX-r.left)/r.width*W;
       let best=0,dd=Infinity;
       for(let i=0;i<L.pts.length;i++){
         const d=Math.abs(L.pts[i].x-sx);
         if(d<dd){dd=d;best=i;}
       }
-      show(best);
+      if(best===last)return;
+      last=best;
+      cancelAnimationFrame(raf);
+      raf=requestAnimationFrame(()=>show(best));
     });
-    svg.addEventListener('mouseleave',()=>{ cross.style.display='none'; tip.style.display='none'; });
+    svg.addEventListener('mouseleave',()=>{ last=-1; cross.style.display='none'; tip.style.display='none'; });
   }
   function klineSVG(tab){
     const K=state.klines[periodFor(tab)];
@@ -535,7 +545,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       '<g id="candles">'+candles+'</g>'+
       '<g id="vol">'+volBars+'</g>'+
       '<line class="base" x1="0" y1="'+K.mainH+'" x2="'+plotW+'" y2="'+K.mainH+'"></line>'+
-      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><circle id="cp" class="p" r="3.5"></circle></g>'+
+      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+plotW+'"></line></g>'+
       xLab+
       '</svg></div>';
   }
@@ -545,25 +555,17 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     if(!K||!svg)return;
     const cross=document.getElementById('cross');
     const cx=document.getElementById('cx');
-    const cp=document.getElementById('cp');
+    const cy=document.getElementById('cy');
     const tip=document.getElementById('tip');
     const W=K.width;
-    svg.addEventListener('mousemove',e=>{
-      const r=svg.getBoundingClientRect();
-      const sx=(e.clientX-r.left)/r.width*W;
-      let best=0,dd=Infinity;
-      for(let i=0;i<K.candles.length;i++){
-        const ccx=K.candles[i].x+K.candles[i].w/2;
-        const d=Math.abs(ccx-sx);
-        if(d<dd){dd=d;best=i;}
-      }
+    const show=function(best){
       const c=K.candles[best];
       if(!c)return;
       const cxPos=c.x+c.w/2;
+      const closeY=c.cls==='up'?c.bodyY:c.bodyY+c.bodyH;
       cross.style.display='';
       cx.setAttribute('x1',cxPos); cx.setAttribute('x2',cxPos);
-      cp.setAttribute('cx',cxPos); cp.setAttribute('cy',c.bodyY+c.bodyH/2);
-      cp.className.baseVal='p '+c.cls;
+      cy.setAttribute('y1',closeY); cy.setAttribute('y2',closeY);
       tip.style.display='block';
       tip.innerHTML=
         '<div class="row"><span>'+c.date+'</span></div>'+
@@ -575,11 +577,28 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       const frac=cxPos/W;
       const rw=svg.parentNode.getBoundingClientRect();
       const tw=tip.offsetWidth;
-      const tx=frac*rw.width+(rw.width*(1/W)*4);
-      tip.style.left=Math.min(Math.max(0,tx-tw/2),rw.width-tw-4)+'px';
+      const lx=frac*rw.width;
+      const tx=frac<0.5?lx+10:lx-tw-10;
+      tip.style.left=Math.min(Math.max(0,tx),rw.width-tw-4)+'px';
       tip.style.top='6px';
+    };
+    let r=svg.getBoundingClientRect();
+    let last=-1,raf=0;
+    svg.addEventListener('mouseenter',()=>{ r=svg.getBoundingClientRect(); });
+    svg.addEventListener('mousemove',e=>{
+      const sx=(e.clientX-r.left)/r.width*W;
+      let best=0,dd=Infinity;
+      for(let i=0;i<K.candles.length;i++){
+        const ccx=K.candles[i].x+K.candles[i].w/2;
+        const d=Math.abs(ccx-sx);
+        if(d<dd){dd=d;best=i;}
+      }
+      if(best===last)return;
+      last=best;
+      cancelAnimationFrame(raf);
+      raf=requestAnimationFrame(()=>show(best));
     });
-    svg.addEventListener('mouseleave',()=>{ cross.style.display='none'; tip.style.display='none'; });
+    svg.addEventListener('mouseleave',()=>{ last=-1; cross.style.display='none'; tip.style.display='none'; });
   }
 })();
 </script>
