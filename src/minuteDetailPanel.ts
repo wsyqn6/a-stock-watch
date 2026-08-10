@@ -224,7 +224,7 @@ export class MinuteDetailPanel {
       return;
     }
     try {
-      const all = await fetchKline(this.symbol, 300, period);
+      const all = await fetchKline(this.symbol, KLINE_CANDLE_COUNT, period);
       const sliced = all.slice(-KLINE_CANDLE_COUNT);
       if (sliced.length < 2) {
         void this.panel.webview.postMessage({ type: 'kline', period, error: 'K线数据不足' });

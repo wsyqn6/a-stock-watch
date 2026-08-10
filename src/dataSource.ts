@@ -223,6 +223,8 @@ const SAMPLE_STEP = 5;
 
 const minuteCache = new Map<string, { data: MinuteData; ts: number }>();
 const MINUTE_TTL_MS = 60_000;
+/** 分时缓存最大条目数，超过则淘汰最旧，避免自选股频繁增删时无界增长。 */
+const MINUTE_CACHE_MAX = 64;
 
 export interface MinuteResult {
   data: MinuteData;
@@ -271,6 +273,14 @@ export async function getMinuteCached(symbol: string): Promise<MinuteResult> {
   try {
     const data = await fetchMinute(symbol);
     minuteCache.set(symbol, { data, ts: Date.now() });
+    if (minuteCache.size > MINUTE_CACHE_MAX) {
+      for (const k of minuteCache.keys()) {
+        if (minuteCache.size <= MINUTE_CACHE_MAX) {
+          break;
+        }
+        minuteCache.delete(k);
+      }
+    }
     return { data, fresh: true };
   } catch (err) {
     if (hit) {
