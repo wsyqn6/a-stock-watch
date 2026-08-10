@@ -54,6 +54,7 @@ export class MinuteDetailPanel {
   private symbol: string;
   private quote?: StockQuote;
   private layout: MinuteChartLayout | null = null;
+  private layoutFp = '';
   private minuteDate = '';
   private volTotal = 0;
   private amtTotal = 0;
@@ -189,22 +190,28 @@ export class MinuteDetailPanel {
     this.panel.title = `${q.name ?? this.symbol} · 走势`;
     try {
       const { data } = await getMinuteCached(this.symbol);
-      const layout = buildMinuteChart(data, q.prevClose);
-      this.layout = layout;
-      this.error = layout ? null : '分时数据缺失';
-      let vol = 0;
-      let amt = 0;
-      for (const p of data.points) {
-        if (p.vol !== undefined) {
-          vol = p.vol;
-        }
-        if (p.amt !== undefined) {
-          amt = p.amt;
-        }
+      const fp = `${data.date}|${data.points.length}|${q.prevClose}`;
+      if (fp !== this.layoutFp) {
+        const layout = buildMinuteChart(data, q.prevClose);
+        this.layout = layout;
+        this.error = layout ? null : '分时数据缺失';
+        this.layoutFp = fp;
       }
-      this.volTotal = vol;
-      this.amtTotal = amt;
-      this.minuteDate = data.date;
+      if (this.layoutFp === fp) {
+        let vol = 0;
+        let amt = 0;
+        for (const p of data.points) {
+          if (p.vol !== undefined) {
+            vol = p.vol;
+          }
+          if (p.amt !== undefined) {
+            amt = p.amt;
+          }
+        }
+        this.volTotal = vol;
+        this.amtTotal = amt;
+        this.minuteDate = data.date;
+      }
     } catch (err) {
       // 同标的刷新失败时保留上一张可用图；切换标的时 layout 已被 load 清空，
       // 走到这里必然置错误提示，避免旧图残留
@@ -396,31 +403,55 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       render(last);
     }
   });
+  let lastLayout=null;
+  const headInner=function(m,pxCls,price,change,changePct){
+    return '<span class="nm">'+m.name+'</span><span class="cd">'+m.code+'</span>'+
+      '<span class="px '+pxCls+'">'+price.toFixed(2)+'</span>'+
+      '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span>';
+  };
+  const row1Inner=function(m,prevClose){
+    return '<span>今开 <b>'+(m.open!=null?m.open.toFixed(2):'—')+'</b></span>'+
+      '<span>最高 <b>'+(m.high!=null?m.high.toFixed(2):'—')+'</b></span>'+
+      '<span>最低 <b>'+(m.low!=null?m.low.toFixed(2):'—')+'</b></span>'+
+      '<span>昨收 <b>'+prevClose.toFixed(2)+'</b></span>';
+  };
+  const row2Inner=function(m,vol){
+    const r=state.tab==='分时'
+      ?[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null]]
+      :[['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null],['市净率',m.pb!=null?m.pb.toFixed(2):null],['总市值',m.totalMcap!=null?fmtAmt(m.totalMcap):null]];
+    return r.map(a=>'<span>'+a[0]+' <b>'+(a[1]!=null?a[1]:'—')+'</b></span>').join('');
+  };
+  function updateText(m){
+    const price=m.price==null?0:m.price;
+    const prevClose=m.prevClose==null?0:m.prevClose;
+    const change=m.change==null?0:m.change;
+    const changePct=m.changePct==null?0:m.changePct;
+    const pxCls=cls(price,prevClose);
+    const head=document.getElementById('head');
+    if(head) head.innerHTML=headInner(m,pxCls,price,change,changePct);
+    const row1=document.getElementById('row1');
+    if(row1) row1.innerHTML=row1Inner(m,prevClose);
+    const row2=document.getElementById('row2');
+    if(row2) row2.innerHTML=row2Inner(m,m.volTotal);
+  }
   function render(m){
     try {
       document.body.classList.toggle('boss',!!m.boss);
-      if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; return; }
+      if(m.error){ app.innerHTML='<div class="msg">'+m.error+'</div>'; lastLayout=null; return; }
       const price=m.price==null?0:m.price;
       const prevClose=m.prevClose==null?0:m.prevClose;
       const change=m.change==null?0:m.change;
       const changePct=m.changePct==null?0:m.changePct;
       const pxCls=cls(price,prevClose);
       const vol=m.volTotal;
-      const head=
-        '<div class="head"><span class="nm">'+m.name+'</span><span class="cd">'+m.code+'</span>'+
-        '<span class="px '+pxCls+'">'+price.toFixed(2)+'</span>'+
-        '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span></div>';
-      const row1=
-        '<div class="stats">'+
-        '<span>今开 <b>'+(m.open!=null?m.open.toFixed(2):'—')+'</b></span>'+
-        '<span>最高 <b>'+(m.high!=null?m.high.toFixed(2):'—')+'</b></span>'+
-        '<span>最低 <b>'+(m.low!=null?m.low.toFixed(2):'—')+'</b></span>'+
-        '<span>昨收 <b>'+prevClose.toFixed(2)+'</b></span>'+
-        '</div>';
-      const r2=state.tab==='分时'
-        ?[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null]]
-        :[['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null],['市净率',m.pb!=null?m.pb.toFixed(2):null],['总市值',m.totalMcap!=null?fmtAmt(m.totalMcap):null]];
-      const row2='<div class="stats">'+r2.map(a=>'<span>'+a[0]+' <b>'+(a[1]!=null?a[1]:'—')+'</b></span>').join('')+'</div>';
+      if(lastLayout===m.layout&&m.layout!==null&&document.getElementById('head')){
+        updateText(m);
+        return;
+      }
+      lastLayout=m.layout;
+      const head='<div class="head" id="head">'+headInner(m,pxCls,price,change,changePct)+'</div>';
+      const row1='<div class="stats" id="row1">'+row1Inner(m,prevClose)+'</div>';
+      const row2='<div class="stats" id="row2">'+row2Inner(m,vol)+'</div>';
       const tabs='<div class="tabs">'+TABS.map(t=>'<button data-tab="'+t+'" class="'+(t===state.tab?'on':'')+'">'+t+'</button>').join('')+'</div>';
       const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
       app.innerHTML=head+row1+row2+tabs+body;
@@ -514,11 +545,13 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     svg.addEventListener('mouseenter',()=>{ r=svg.getBoundingClientRect(); });
     svg.addEventListener('mousemove',e=>{
       const sx=(e.clientX-r.left)/r.width*W;
-      let best=0,dd=Infinity;
-      for(let i=0;i<L.pts.length;i++){
-        const d=Math.abs(L.pts[i].x-sx);
-        if(d<dd){dd=d;best=i;}
+      let lo=0,hi=L.pts.length-1;
+      while(lo<hi){
+        const mid=(lo+hi)>>1;
+        if(L.pts[mid].x<sx)lo=mid+1;else hi=mid;
       }
+      let best=lo;
+      if(lo>0&&sx-L.pts[lo-1].x<Math.abs(L.pts[lo].x-sx))best=lo-1;
       if(best===last)return;
       last=best;
       cancelAnimationFrame(raf);
@@ -587,11 +620,16 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     svg.addEventListener('mouseenter',()=>{ r=svg.getBoundingClientRect(); });
     svg.addEventListener('mousemove',e=>{
       const sx=(e.clientX-r.left)/r.width*W;
-      let best=0,dd=Infinity;
-      for(let i=0;i<K.candles.length;i++){
-        const ccx=K.candles[i].x+K.candles[i].w/2;
-        const d=Math.abs(ccx-sx);
-        if(d<dd){dd=d;best=i;}
+      let lo=0,hi=K.candles.length-1;
+      while(lo<hi){
+        const mid=(lo+hi)>>1;
+        const ccx=K.candles[mid].x+K.candles[mid].w/2;
+        if(ccx<sx)lo=mid+1;else hi=mid;
+      }
+      let best=lo;
+      if(lo>0){
+        const d=sx-(K.candles[lo-1].x+K.candles[lo-1].w/2);
+        if(d<Math.abs(K.candles[lo].x+K.candles[lo].w/2-sx))best=lo-1;
       }
       if(best===last)return;
       last=best;
