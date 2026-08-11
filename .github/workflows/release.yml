@@ -40,9 +40,22 @@ jobs:
       - name: Package .vsix
         run: bun run package
 
+      - name: Extract changelog section
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="[$VERSION]" '
+            $0 ~ ("^## \\[" ver "\\]") { found = 1; next }
+            found && (/^## /) { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::warning::CHANGELOG.md has no section for [$VERSION]; release body will be empty"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: a-stock-watch-*.vsix
-          generate_release_notes: true
+          body_path: release-notes.md
+          generate_release_notes: false
