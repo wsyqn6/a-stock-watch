@@ -41,16 +41,7 @@ jobs:
         run: bun run package
 
       - name: Extract changelog section
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          awk -v ver="[$VERSION]" '
-            $0 ~ ("^## \\[" ver "\\]") { found = 1; next }
-            found && (/^## /) { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "::warning::CHANGELOG.md has no section for [$VERSION]; release body will be empty"
-          fi
+        run: bun run scripts/extract-release-notes.mjs "${GITHUB_REF_NAME#v}" release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
