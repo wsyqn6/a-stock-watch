@@ -3,6 +3,7 @@ import { Store } from './store';
 import { StockViewProvider } from './stockViewProvider';
 import { StatusBarController } from './statusBarController';
 import { searchStock, searchEastmoney, SearchResult } from './search';
+import { MoveAlarm } from './moveAlarm';
 
 interface PickItem extends vscode.QuickPickItem {
   result?: SearchResult;
@@ -13,6 +14,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const statusBar = new StatusBarController(store);
   statusBar.start();
   context.subscriptions.push(statusBar);
+
+  const alarm = new MoveAlarm(store);
+  alarm.start();
+  context.subscriptions.push(alarm);
 
   const provider = new StockViewProvider(store, () => {
     void statusBar.refreshNow();

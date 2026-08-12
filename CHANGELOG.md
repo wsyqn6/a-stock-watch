@@ -1,5 +1,12 @@
 # 更新日志
 
+## [Unreleased]
+
+### 新增
+
+- 大幅异动通知：自选股涨跌幅越过阈值时弹右下角通知，可点「查看走势」直达分时图；后台常驻，侧边栏隐藏也生效，轮询用独立 15 秒慢间隔不跟侧边栏快刷
+- 新增配置 `aStockWatch.bigMoveAlert`（总开关，默认关闭）、`aStockWatch.bigMoveAlertPct`（阈值，默认 5%）、`aStockWatch.bigMoveAlertCooldownMin`（冷却分钟，默认 30，同股同向冷却期内不重复弹）
+
 ## [0.1.10] - 2026-08-10
 
 ### 修复

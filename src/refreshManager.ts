@@ -14,6 +14,7 @@ export class RefreshManager implements vscode.Disposable {
   constructor(
     private readonly sink: QuoteSink,
     private readonly view?: vscode.WebviewView,
+    private readonly intervalSecOverride?: number,
   ) {}
 
   start(): void {
@@ -34,9 +35,11 @@ export class RefreshManager implements vscode.Disposable {
     if ((this.view && !this.view.visible) || this.disposing) {
       return;
     }
-    const sec = vscode.workspace
-      .getConfiguration('aStockWatch')
-      .get<number>('refreshIntervalSec', 3);
+    const sec =
+      this.intervalSecOverride ??
+      vscode.workspace
+        .getConfiguration('aStockWatch')
+        .get<number>('refreshIntervalSec', 3);
     const ms = Math.max(1, sec) * 1000;
     this.timer = setInterval(() => void this.autoRefresh(), ms);
   }

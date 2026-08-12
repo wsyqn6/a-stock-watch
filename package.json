@@ -169,6 +169,25 @@
           "default": [],
           "scope": "window",
           "description": "状态栏显示的股票代码（须为自选股成员，最多3只，数组顺序即状态栏顺序，可在设置中直接编辑）"
+        },
+        "aStockWatch.bigMoveAlert": {
+          "type": "boolean",
+          "default": false,
+          "description": "大幅异动通知：自选股涨跌幅越过阈值时弹右下角通知。开启后交易时段后台每 15 秒轮询一次自选股（侧边栏隐藏也生效），默认关闭零请求"
+        },
+        "aStockWatch.bigMoveAlertPct": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "大幅异动通知触发阈值（%），涨跌幅绝对值达到即触发"
+        },
+        "aStockWatch.bigMoveAlertCooldownMin": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 240,
+          "description": "大幅异动通知冷却时间（分钟），冷却期内同一股票同一方向不再重复通知"
         }
       }
     }
