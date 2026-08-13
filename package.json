@@ -196,7 +196,8 @@
     "compile": "tsc -p ./",
     "test": "bun test",
     "package": "bunx @vscode/vsce package --no-dependencies",
-    "publish": "bunx @vscode/vsce publish --no-dependencies"
+    "publish": "bunx @vscode/vsce publish --no-dependencies",
+    "publish:openvsx": "bunx ovsx publish --skip-duplicate"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

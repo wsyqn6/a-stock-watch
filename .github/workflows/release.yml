@@ -43,6 +43,9 @@ jobs:
       - name: Extract changelog section
         run: bun run scripts/extract-release-notes.mjs "${GITHUB_REF_NAME#v}" release-notes.md
 
+      - name: Publish to Open VSX
+        run: bunx ovsx publish a-stock-watch-*.vsix --skip-duplicate -p ${{ secrets.OVSX_TOKEN }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

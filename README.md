@@ -20,6 +20,12 @@ VS Code 扩展市场搜索「A股速览」，或访问插件主页直接安装�
 
 [A股速览 - Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=wsyqn6.a-stock-watch)
 
+CodeBuddy IDE / VSCodium / Cursor 等基于 Open VSX 的编辑器，扩展面板搜索「A股速览」或访问：
+
+[A股速览 - Open VSX](https://open-vsx.org/extension/wsyqn6/a-stock-watch)
+
+> 若在某些编辑器内搜不到，可下载 GitHub Releases 中的 `.vsix` 后在扩展面板手动安装。
+
 ## 特性
 
 - **实时行情**：自选股价格、涨跌额、涨跌幅，涨跌红绿区分
