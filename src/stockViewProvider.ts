@@ -52,6 +52,7 @@ const INDEX_SHORT_NAMES: Record<string, string> = {
 };
 
 const MINUTE_INTERVAL_MS = 60_000;
+const BREADTH_INTERVAL_MS = 60_000;
 
 const WEBVIEW_CSS = `
 :root{--up:#E15241;--down:#2EA46E}
@@ -137,6 +138,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private quotes: StockQuote[] = [];
   private indexQuotes: StockQuote[] = [];
   private breadth: MarketBreadth | null = null;
+  private lastBreadthAt = 0;
   private sparks = new Map<string, SparkData | null>();
   private error: string | null = null;
   private warn: string | null = null;
@@ -249,7 +251,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
     this.refreshingMinute = true;
     try {
-      const pcMap = new Map(this.quotes.map((q) => [q.symbol, q.prevClose]));
+      const pcMap = new Map(
+        [...this.quotes, ...this.indexQuotes].map((q) => [q.symbol, q.prevClose]),
+      );
       if (symbols.some((s) => !pcMap.has(s))) {
         try {
           for (const q of await fetchQuotes(symbols)) {
@@ -397,8 +401,13 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     void this.refreshMinute();
   }
 
-  /** 拉取沪深全 A 涨跌家数；失败静默降级（概览条仅不显示进度条，不影响行情）。 */
+  /** 拉取沪深全 A 涨跌家数；失败静默降级（概览条仅不显示进度条，不影响行情）。60s 节流：家数变化慢，无需随行情 3s 一拉。 */
   private async refreshBreadth(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastBreadthAt < BREADTH_INTERVAL_MS) {
+      return;
+    }
+    this.lastBreadthAt = now;
     try {
       const b = await fetchMarketBreadth();
       if (
