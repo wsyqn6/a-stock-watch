@@ -2,7 +2,7 @@
   "name": "a-stock-watch",
   "displayName": "A股速览",
   "description": "A-share (Chinese stock) watchlist with real-time quotes in the VS Code sidebar",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "publisher": "wsyqn6",
   "private": true,
   "repository": {
@@ -135,6 +135,26 @@
           "type": "boolean",
           "default": false,
           "description": "老板模式：开启后界面全部灰显，低调不显眼"
+        },
+        "aStockWatch.showMarketBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "显示大盘概览条：指数行情与迷你分时图 + 沪深涨跌家数进度条（仅侧边栏可见时请求）"
+        },
+        "aStockWatch.marketIndex": {
+          "type": "string",
+          "enum": [
+            "sh000001",
+            "sz399001",
+            "sz399006"
+          ],
+          "default": "sh000001",
+          "enumDescriptions": [
+            "上证指数",
+            "深证成指",
+            "创业板指"
+          ],
+          "description": "大盘概览条展示的指数（含迷你分时图，点击可看详情）"
         },
         "aStockWatch.refreshIntervalSec": {
           "type": "number",

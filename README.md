@@ -3,6 +3,7 @@
 ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 ![VS Code](https://img.shields.io/badge/vscode-%5E1.90.0-blue)
 ![Version](https://vsmarketplacebadges.dev/version-short/wsyqn6.a-stock-watch.svg)
+![Open VSX Version](https://img.shields.io/open-vsx/v/wsyqn6/a-stock-watch)
 ![最近提交](https://img.shields.io/github/last-commit/wsyqn6/a-stock-watch)
 
 在 VS Code 侧边栏实时查看 A 股自选股行情，支持分时迷你走势图、置顶、右键快捷操作与排序。
@@ -29,6 +30,7 @@ CodeBuddy IDE / VSCodium / Cursor 等基于 Open VSX 的编辑器，扩展面板
 ## 特性
 
 - **实时行情**：自选股价格、涨跌额、涨跌幅，涨跌红绿区分
+- **大盘概览条**：顶部展示可配置指数（默认上证）实时行情、迷你分时图与沪深涨跌家数进度条，点击指数直达走势图
 - **分时迷你图**：卡片内嵌当日分时走势迷你图
 - **分时详情图**：点击自选股行，在编辑器面板打开雪球风格分时大图（分时线 / 均价线 / 成交量柱 / 十字光标）
 - **老板模式**：`Ctrl+Alt+L` 一键灰显全部界面，低调不显眼，随时退出
@@ -73,11 +75,15 @@ CodeBuddy IDE / VSCodium / Cursor 等基于 Open VSX 的编辑器，扩展面板
 - **编辑模式**（✎）：拖动卡片调整顺序，点 ✕ 删除，点图钉置顶，点心形切换状态栏
 - **置顶**：置顶股始终显示在最前，组内仍按当前排序方式排列
 
+大盘概览条显示所配指数（默认上证）的现价、涨跌幅与迷你分时图，下方进度条按红绿灰分段展示沪深涨跌平家数；点击指数可打开其分时 / K线走势。
+
 ## 设置
 
 | 设置项 | 默认 | 说明 |
 | --- | --- | --- |
 | `aStockWatch.refreshIntervalSec` | `3` | 行情刷新间隔（秒），范围 1–120 |
+| `aStockWatch.showMarketBar` | `true` | 显示大盘概览条（指数行情 + 迷你分时图 + 涨跌家数进度条） |
+| `aStockWatch.marketIndex` | `sh000001` | 概览条展示的指数：`sh000001` 上证 / `sz399001` 深证 / `sz399006` 创业板 |
 | `aStockWatch.watchlist` | `[]` | 自选股列表，数组顺序即显示顺序（可手动编辑） |
 | `aStockWatch.pinned` | `[]` | 置顶自选股，始终显示在最前（须为自选股成员） |
 | `aStockWatch.statusBar` | `[]` | 状态栏显示的股票代码，最多 3 只（须为自选股成员） |
@@ -85,7 +91,7 @@ CodeBuddy IDE / VSCodium / Cursor 等基于 Open VSX 的编辑器，扩展面板
 | `aStockWatch.bigMoveAlertPct` | `5` | 大幅异动触发阈值（%），范围 1–20 |
 | `aStockWatch.bigMoveAlertCooldownMin` | `30` | 大幅异动通知冷却分钟，范围 1–240 |
 
-> 首次使用会写入默认自选股（上证指数、深证成指）。
+> 首次使用会写入默认自选股（深证成指）。
 
 ## 数据来源
 

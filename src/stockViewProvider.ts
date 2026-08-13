@@ -1,5 +1,16 @@
 import * as vscode from 'vscode';
-import { StockQuote, fetchQuotes, getMinuteCached, buildSpark, SparkData, isTradingTime } from './dataSource';
+import {
+  StockQuote,
+  fetchQuotes,
+  fetchMarketBreadth,
+  getMinuteCached,
+  buildSpark,
+  SparkData,
+  isTradingTime,
+  MarketBreadth,
+  MARKET_INDEX_OPTIONS,
+  MarketIndexSymbol,
+} from './dataSource';
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 import { orderQuotes, SortMode } from './order';
@@ -18,6 +29,28 @@ export interface QuoteViewItem {
   pinned: boolean;
 }
 
+export interface IndexViewItem {
+  sym: string;
+  short: string;
+  price: string;
+  changePct: string;
+  cls: 'up' | 'down' | 'flat';
+  spark: SparkData | null;
+}
+
+export interface MarketPayload {
+  show: boolean;
+  indices: IndexViewItem[];
+  breadth: MarketBreadth | null;
+}
+
+/** 指数在概览条的短名（侧边栏空间有限）。 */
+const INDEX_SHORT_NAMES: Record<string, string> = {
+  sh000001: '上证',
+  sz399001: '深证',
+  sz399006: '创业板',
+};
+
 const MINUTE_INTERVAL_MS = 60_000;
 
 const WEBVIEW_CSS = `
@@ -25,6 +58,7 @@ const WEBVIEW_CSS = `
 @media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
 body.boss{filter:grayscale(1)}
 *{box-sizing:border-box;margin:0;padding:0}
+svg[aria-hidden="true"]{position:absolute;pointer-events:none}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px}
 .row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
 .row:hover{background:var(--vscode-list-hoverBackground)}
@@ -73,6 +107,25 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .flat{color:var(--vscode-descriptionForeground)}
 .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
 .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
+.market{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:6px;padding:6px 8px 4px;margin:4px 4px 8px;user-select:none}
+.mhead{display:flex;align-items:center;gap:6px;padding:0 0 2px;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase}
+.lhead{display:flex;align-items:baseline;gap:6px;margin:8px 12px 4px;padding:0;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase;border-bottom:1px solid var(--vscode-panel-border)}
+.lhead .cnt{font-weight:400;letter-spacing:0;opacity:.7}
+.mind{display:block}
+.midx{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:4px;cursor:pointer}
+.midx:hover{background:var(--vscode-list-hoverBackground)}
+.midx .iname{flex:0 0 48px;font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.midx .spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px}
+.midx .right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.midx .ipct{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap}
+.midx .iprice{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap;opacity:.72}
+.gauge{height:3px;margin:8px 6px 0;border-radius:2px;display:flex;overflow:hidden;background:var(--vscode-editor-background);box-shadow:inset 0 0 0 1px var(--vscode-panel-border)}
+.gauge .seg.up{background:var(--up)}
+.gauge .seg.down{background:var(--down)}
+.gauge .seg.flat{background:var(--vscode-descriptionForeground)}
+.gnums{display:flex;align-items:baseline;justify-content:space-between;padding:5px 8px 2px;font-size:10px;font-variant-numeric:tabular-nums;line-height:1;color:var(--vscode-descriptionForeground)}
+.gnums .u{color:var(--up)}
+.gnums .d{color:var(--down)}
 `;
 
 export class StockViewProvider implements vscode.WebviewViewProvider {
@@ -82,6 +135,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private minuteTimer: NodeJS.Timeout | null = null;
   private refreshingMinute = false;
   private quotes: StockQuote[] = [];
+  private indexQuotes: StockQuote[] = [];
+  private breadth: MarketBreadth | null = null;
   private sparks = new Map<string, SparkData | null>();
   private error: string | null = null;
   private warn: string | null = null;
@@ -146,7 +201,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       } else if (type === 'openDetail') {
         const symbol = (msg as { symbol?: unknown }).symbol;
         if (typeof symbol === 'string') {
-          const quote = this.quotes.find((q) => q.symbol === symbol);
+          const quote =
+            this.quotes.find((q) => q.symbol === symbol) ??
+            this.indexQuotes.find((q) => q.symbol === symbol);
           MinuteDetailPanel.open(symbol, quote);
         }
       }
@@ -183,7 +240,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (!this.view?.visible || this.refreshingMinute) {
       return;
     }
-    const symbols = this.store.getAll();
+    const symbols = this.minuteSymbols();
     if (symbols.length === 0) {
       return;
     }
@@ -262,6 +319,32 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     return this.store.getAll();
   }
 
+  /** 概览条展示的指数符号（配置可选，默认上证）。 */
+  private getMarketIndexSymbol(): MarketIndexSymbol {
+    const cfg = vscode.workspace
+      .getConfiguration('aStockWatch')
+      .get<string>('marketIndex', 'sh000001');
+    return (MARKET_INDEX_OPTIONS as readonly string[]).includes(cfg)
+      ? (cfg as MarketIndexSymbol)
+      : 'sh000001';
+  }
+
+  /** 需要刷新迷你分时的符号：自选股 + 概览指数（showMarketBar 开启时）。 */
+  private minuteSymbols(): string[] {
+    const symbols = [...this.store.getAll()];
+    if (
+      vscode.workspace
+        .getConfiguration('aStockWatch')
+        .get<boolean>('showMarketBar', true)
+    ) {
+      const idx = this.getMarketIndexSymbol();
+      if (!symbols.includes(idx)) {
+        symbols.push(idx);
+      }
+    }
+    return symbols;
+  }
+
   refreshNow(): Promise<void> {
     return this.manager?.refresh() ?? Promise.resolve();
   }
@@ -272,26 +355,67 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 
   async refresh(symbols: string[]): Promise<void> {
-    if (symbols.length === 0) {
+    // 概览指数并入同一批量请求，守"全部标的单次 HTTP"原则；自选股为空也保留指数概览。
+    // showMarketBar 关闭时不再合并指数、不请求涨跌家数。
+    const showMarket = vscode.workspace
+      .getConfiguration('aStockWatch')
+      .get<boolean>('showMarketBar', true);
+    const idxSym = showMarket ? this.getMarketIndexSymbol() : null;
+    const wanted = new Set(symbols);
+    const fetchList = [
+      ...new Set(idxSym ? [idxSym, ...symbols] : symbols),
+    ] as string[];
+    try {
+      const all = await fetchQuotes(fetchList);
+      this.quotes = wanted.size > 0 ? all.filter((q) => wanted.has(q.symbol)) : [];
+      this.indexQuotes = idxSym ? all.filter((q) => q.symbol === idxSym) : [];
+      this.error =
+        wanted.size > 0 && this.quotes.length === 0 ? '未获取到行情数据' : null;
+    } catch (err) {
       this.quotes = [];
-      this.error = null;
+      this.error =
+        wanted.size > 0
+          ? err instanceof Error
+            ? `行情错误: ${err.message}`
+            : '行情错误'
+          : null;
+    }
+    if (!showMarket) {
+      this.breadth = null;
+    }
+    if (wanted.size === 0) {
       this.warn = null;
-    } else {
-      try {
-        this.quotes = await fetchQuotes(symbols);
-        this.error = this.quotes.length === 0 ? '未获取到行情数据' : null;
-      } catch (err) {
-        this.quotes = [];
-        this.error = err instanceof Error ? `行情错误: ${err.message}` : '行情错误';
-      }
-      if (this.error === null && this.quotes.length > 0) {
-        const got = new Set(this.quotes.map((q) => q.symbol));
-        const missing = symbols.filter((s) => !got.has(s));
-        this.warn = missing.length > 0 ? `未获取到行情：${missing.join(', ')}` : null;
-      }
+    } else if (this.error === null && this.quotes.length > 0) {
+      const got = new Set(this.quotes.map((q) => q.symbol));
+      const missing = symbols.filter((s) => !got.has(s));
+      this.warn = missing.length > 0 ? `未获取到行情：${missing.join(', ')}` : null;
+    }
+    if (showMarket) {
+      void this.refreshBreadth();
     }
     this.push();
     void this.refreshMinute();
+  }
+
+  /** 拉取沪深全 A 涨跌家数；失败静默降级（概览条仅不显示进度条，不影响行情）。 */
+  private async refreshBreadth(): Promise<void> {
+    try {
+      const b = await fetchMarketBreadth();
+      if (
+        !this.breadth ||
+        this.breadth.up !== b.up ||
+        this.breadth.down !== b.down ||
+        this.breadth.flat !== b.flat
+      ) {
+        this.breadth = b;
+        this.push();
+      }
+    } catch {
+      if (this.breadth !== null) {
+        this.breadth = null;
+        this.push();
+      }
+    }
   }
 
   private ordered(): StockQuote[] {
@@ -306,7 +430,24 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const items = this.ordered().map((q) =>
       toViewItem(q, this.sparks.get(q.symbol) ?? null, this.store.statusBarHas(q.symbol), pinned.has(q.symbol)),
     );
-    void this.view.webview.postMessage({ type: 'quotes', items, error: this.error, warn: this.warn, boss: this.bossMode });
+    const showMarket = vscode.workspace
+      .getConfiguration('aStockWatch')
+      .get<boolean>('showMarketBar', true);
+    const market: MarketPayload = {
+      show: showMarket,
+      indices: this.indexQuotes.map((q) =>
+        toIndexViewItem(q, this.sparks.get(q.symbol) ?? null),
+      ),
+      breadth: this.breadth,
+    };
+    void this.view.webview.postMessage({
+      type: 'quotes',
+      items,
+      error: this.error,
+      warn: this.warn,
+      boss: this.bossMode,
+      market,
+    });
   }
 
   private html(): string {
@@ -320,24 +461,94 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
 <svg width="0" height="0" aria-hidden="true"><defs><linearGradient id="gUp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--up);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--up);stop-opacity:0"/></linearGradient><linearGradient id="gDown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--down);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--down);stop-opacity:0"/></linearGradient></defs></svg>
+<div id="market" class="market"></div>
 <div id="app"><div class="msg">加载中…</div></div>
 <script nonce="${nonce}">
 (function(){
   const app=document.getElementById('app');
+  const marketEl=document.getElementById('market');
   const api=acquireVsCodeApi();
   const PIN_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5z" fill="currentColor"></path><circle cx="8" cy="6" r="1.7" fill="var(--vscode-editor-background)"></circle></svg>';
   const TOP_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M9.6 1.4l5 5-1 1-1.4-1.4-1.9 1.9.9 2.1-2.8 2.8-2.6-2.6L4 14l-2-2 3.8-2.8-2.6-2.6 2.8-2.8 2.1.9 1.9-1.9-1.4-1.4z" fill="currentColor"/></svg>';
   api.postMessage({type:'ready'});
   let editing=false;
   let cur=[];
+  let lastMkSig='';
+  function idxHtml(it){
+    return '<div class="midx" data-ix="'+it.sym+'" title="查看 '+it.short+' 走势">'+
+      '<span class="iname">'+it.short+'</span>'+
+      '<svg class="spark flat" viewBox="0 0 100 18" preserveAspectRatio="none"></svg>'+
+      '<span class="right"><span class="ipct"></span><span class="iprice"></span></span></div>';
+  }
+  function mkBarHtml(b){
+    if(!b)return '';
+    const t=b.up+b.down+b.flat;
+    if(!t)return '';
+    return '<div class="gauge"><div class="seg up"></div>'+
+      (b.flat?'<div class="seg flat"></div>':'')+'<div class="seg down"></div></div>'+
+      '<div class="gnums"><span class="u"></span>'+(b.flat?'<span class="f"></span>':'')+'<span class="d"></span></div>';
+  }
+  function setMkValues(m){
+    const idxs=marketEl.querySelectorAll('.midx');
+    m.indices.forEach((it,i)=>{
+      const el=idxs[i];
+      if(!el)return;
+      const p=el.querySelector('.ipct');
+      p.textContent=it.changePct;p.className='ipct '+it.cls;
+      const r=el.querySelector('.iprice');
+      r.textContent=it.price;
+      const svg=el.querySelector('.spark');
+      const s=it.spark;
+      if(svg&&s&&s.line){
+        if(svg.dataset.pts!==s.line){
+          svg.dataset.pts=s.line;
+          svg.innerHTML='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
+          svg.setAttribute('class','spark '+s.color);
+        }
+      } else if(svg&&(!s||!s.line)){
+        if(svg.innerHTML!==''){svg.innerHTML='';svg.setAttribute('class','spark flat');}
+      }
+    });
+    const b=m.breadth;
+    if(!b)return;
+    const t=b.up+b.down+b.flat;
+    if(!t)return;
+    const upW=(b.up/t*100).toFixed(1);
+    const downW=(b.down/t*100).toFixed(1);
+    const up=marketEl.querySelector('.gauge .seg.up');
+    if(up)up.style.width=upW+'%';
+    const down=marketEl.querySelector('.gauge .seg.down');
+    if(down)down.style.width=downW+'%';
+    const flat=marketEl.querySelector('.gauge .seg.flat');
+    if(flat)flat.style.width=(100-upW-downW).toFixed(1)+'%';
+    const u=marketEl.querySelector('.gnums .u');
+    if(u)u.textContent='涨 '+b.up;
+    const f=marketEl.querySelector('.gnums .f');
+    if(f)f.textContent='平 '+b.flat;
+    const d=marketEl.querySelector('.gnums .d');
+    if(d)d.textContent='跌 '+b.down;
+  }
+  function renderMarket(m){
+    if(!m||!m.show){if(marketEl.innerHTML){marketEl.innerHTML='';lastMkSig='';}return;}
+    const sig=m.indices.map(i=>i.sym).join(',')+'|'+(m.breadth?'1':'0');
+    if(sig!==lastMkSig){
+      lastMkSig=sig;
+      marketEl.innerHTML='<div class="mhead">大盘</div><div class="mind">'+m.indices.map(idxHtml).join('')+'</div>'+mkBarHtml(m.breadth);
+      marketEl.querySelectorAll('.midx').forEach(el=>{
+        el.addEventListener('click',()=>api.postMessage({type:'openDetail',symbol:el.dataset.ix}));
+      });
+    }
+    setMkValues(m);
+  }
   window.addEventListener('message',e=>{
     const m=e.data;
     if(!m)return;
     if(m.type==='editMode'){ editing=!!m.value; document.body.classList.toggle('editing',editing); if(cur.length)render(cur); return; }
     if(m.type!=='quotes')return;
     document.body.classList.toggle('boss',!!m.boss);
+    renderMarket(m.market);
     if(m.error){app.innerHTML='<div class="msg">'+m.error+'</div>';return;}
-    if(!m.items||!m.items.length){cur=[];app.innerHTML='<div class="msg">暂无自选股，点击 + 添加</div>';return;}
+    if(!m.items||!m.items.length){cur=[];app.innerHTML='<div class="lhead">自选股<span class="cnt">0</span></div><div class="msg">暂无自选股，点击 + 添加</div>';return;}
     render(m.items,m.warn);
   });
   function render(items,warn){
@@ -346,7 +557,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       curSig=sig;
       closeMenu();
       const banner=warn?'<div class="warn">'+warn+'</div>':'';
-      app.innerHTML=banner+items.map((it,i)=>{
+      app.innerHTML=banner+'<div class="lhead">自选股<span class="cnt">'+items.length+'</span></div>'+items.map((it,i)=>{
         const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
         const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
         const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
@@ -378,10 +589,10 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
           if(curPts!==s.line){
             svg.dataset.pts=s.line;
             svg.innerHTML='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
-            svg.className='spark '+s.color;
+            svg.setAttribute('class','spark '+s.color);
           }
         } else if(svg&&(!s||!s.line)){
-          if(svg.innerHTML!==''){svg.innerHTML='';svg.className='spark flat';}
+          if(svg.innerHTML!==''){svg.innerHTML='';svg.setAttribute('class','spark flat');}
         }
       });
     }
@@ -493,5 +704,17 @@ function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean, pinn
     spark,
     inBar,
     pinned,
+  };
+}
+
+function toIndexViewItem(q: StockQuote, spark: SparkData | null): IndexViewItem {
+  const cls: IndexViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
+  return {
+    sym: q.symbol,
+    short: INDEX_SHORT_NAMES[q.symbol] ?? q.name,
+    price: q.price.toFixed(2),
+    changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
+    cls,
+    spark,
   };
 }

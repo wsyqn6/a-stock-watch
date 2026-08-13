@@ -47,6 +47,12 @@ export function activate(context: vscode.ExtensionContext): void {
         store.reload();
         provider.refreshNow();
       }
+      if (
+        e.affectsConfiguration('aStockWatch.showMarketBar') ||
+        e.affectsConfiguration('aStockWatch.marketIndex')
+      ) {
+        provider.refreshNow();
+      }
       if (e.affectsConfiguration('aStockWatch.bossMode')) {
         applyBossMode();
       }

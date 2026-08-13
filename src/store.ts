@@ -6,7 +6,8 @@ const WATCHLIST_KEY = 'watchlist';
 const STATUS_BAR_KEY = 'statusBar';
 const PINNED_KEY = 'pinned';
 const LEGACY_KEY = 'aStockWatch.list';
-const DEFAULT_SYMBOLS = ['sh000001', 'sz399001'];
+// 默认自选仅留深证成指：上证指数已由概览条展示（可配置），避免重复。
+const DEFAULT_SYMBOLS = ['sz399001'];
 
 export class Store implements vscode.Disposable {
   static readonly STATUS_BAR_MAX = 3;

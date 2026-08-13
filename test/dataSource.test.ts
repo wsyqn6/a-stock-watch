@@ -3,6 +3,7 @@ import {
   parseTencentResponse,
   parseMinuteResponse,
   parseKlineResponse,
+  parseBreadthResponse,
   buildSpark,
   buildMinuteSeries,
   buildMinuteChart,
@@ -398,6 +399,41 @@ describe('minute series & chart', () => {
   it('returns null for series with no volume data', () => {
     const d = parseMinuteResponse(minuteJSON(['0930 10.00', '0931 10.10']), SYM);
     expect(buildMinuteChart(d, 10)).toBeNull();
+  });
+});
+
+describe('parseBreadthResponse', () => {
+  const emJSON = (diff: unknown[]) =>
+    JSON.stringify({ rc: 0, data: { total: diff.length, diff } });
+
+  it('sums up/down/flat across index rows', () => {
+    const b = parseBreadthResponse(
+      emJSON([
+        { f104: 529, f105: 1777, f106: 45 },
+        { f104: 571, f105: 2314, f106: 47 },
+      ]),
+    );
+    expect(b).toEqual({ up: 1100, down: 4091, flat: 92 });
+  });
+
+  it('treats missing or malformed counts as zero', () => {
+    const b = parseBreadthResponse(
+      emJSON([{ f104: 100, f106: 5 }, { f105: '30' }, null]),
+    );
+    expect(b).toEqual({ up: 100, down: 30, flat: 5 });
+  });
+
+  it('returns null for empty diff', () => {
+    expect(parseBreadthResponse(emJSON([]))).toBeNull();
+  });
+
+  it('returns null for invalid json or missing data', () => {
+    expect(parseBreadthResponse('not json')).toBeNull();
+    expect(parseBreadthResponse(JSON.stringify({}))).toBeNull();
+  });
+
+  it('returns null when all counts are zero', () => {
+    expect(parseBreadthResponse(emJSON([{ f104: 0, f105: 0, f106: 0 }]))).toBeNull();
   });
 });
 

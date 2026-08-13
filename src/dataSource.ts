@@ -81,6 +81,76 @@ export function parseKlineResponse(
     .filter((p) => p.close > 0);
 }
 
+/** 大盘概览可选的跟踪指数（腾讯行情符号），默认上证。 */
+export const MARKET_INDEX_OPTIONS = ['sh000001', 'sz399001', 'sz399006'] as const;
+export type MarketIndexSymbol = (typeof MARKET_INDEX_OPTIONS)[number];
+
+export interface MarketBreadth {
+  up: number;
+  down: number;
+  flat: number;
+}
+
+/** 东财市场涨跌家数接口：`f104` 上涨 / `f105` 下跌 / `f106` 平盘。多主机兜底防限流。 */
+const BREADTH_HOSTS = [
+  'https://push2.eastmoney.com',
+  'https://push2delay.eastmoney.com',
+];
+
+export async function fetchMarketBreadth(): Promise<MarketBreadth> {
+  let lastErr: unknown;
+  for (const base of BREADTH_HOSTS) {
+    try {
+      const url =
+        `${base}/api/qt/ulist.np/get?fltt=2&secids=1.000001,0.399001&fields=f104,f105,f106`;
+      const res = await fetchWithTimeout(url);
+      if (!res.ok) {
+        throw new Error(`涨跌家数接口返回 ${res.status}`);
+      }
+      const breadth = parseBreadthResponse(await res.text());
+      if (breadth) {
+        return breadth;
+      }
+      throw new Error('涨跌家数接口数据异常');
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('涨跌家数接口不可用');
+}
+
+export function parseBreadthResponse(text: string): MarketBreadth | null {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const diff = (root as { data?: { diff?: unknown[] } } | null)?.data?.diff;
+  if (!Array.isArray(diff) || diff.length === 0) {
+    return null;
+  }
+  let up = 0;
+  let down = 0;
+  let flat = 0;
+  for (const row of diff) {
+    const rec = row as { f104?: unknown; f105?: unknown; f106?: unknown } | null;
+    up += toCount(rec?.f104);
+    down += toCount(rec?.f105);
+    flat += toCount(rec?.f106);
+  }
+  if (up + down + flat === 0) {
+    return null;
+  }
+  return { up, down, flat };
+}
+
+/** 转为非负整数；NaN/负数/缺省按 0 计。 */
+function toCount(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
 export interface StockQuote {
   symbol: string;
   name: string;
