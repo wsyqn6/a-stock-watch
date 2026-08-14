@@ -16,12 +16,20 @@ import { RefreshManager } from './refreshManager';
 import { orderQuotes, SortMode } from './order';
 import { MinuteDetailPanel } from './minuteDetailPanel';
 import { getNonce } from './util';
-import { fetchNewStockApplies, fetchNewBondApplies, groupByDay, IpoDay, pad } from './ipo';
+import {
+  fetchNewStockApplies,
+  fetchNewBondApplies,
+  groupByDay,
+  IpoDay,
+  pad,
+  boardOf,
+} from './ipo';
 
 export interface QuoteViewItem {
   sym: string;
   name: string;
   code: string;
+  board: string;
   price: string;
   changePct: string;
   cls: 'up' | 'down' | 'flat';
@@ -71,7 +79,9 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .left{flex:0 0 90px;width:90px;max-width:90px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
 .right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
 .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.codeline{display:flex;align-items:center;gap:4px;min-width:0}
 .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
+.board{flex:0 0 auto;font-size:9px;line-height:1.6;color:var(--vscode-descriptionForeground);white-space:nowrap}
 .price{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
 .pct{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
 .spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px;transition:opacity .12s ease}
@@ -133,9 +143,7 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .ipo-body .left{flex:1;min-width:0;width:auto;max-width:none;display:flex;flex-direction:column;justify-content:center;gap:1px}
 .ipo-body .right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
 .ipo-body .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ipo-body .codeline{display:flex;align-items:center;gap:5px;min-width:0}
 .ipo-body .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
-.ipo-body .board{flex:0 0 auto;font-size:9px;line-height:1.6;color:var(--vscode-descriptionForeground);border:1px solid var(--vscode-widget-border);border-radius:4px;padding:0 4px;white-space:nowrap}
 .ipo-body .date{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
 .ipo-body .price{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
 .ipo-body .tag{font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.15;white-space:nowrap}
@@ -716,7 +724,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
         const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
         const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
-        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="code">'+it.code+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
+        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="codeline"><span class="code">'+it.code+'</span>'+(it.board?'<span class="board">'+it.board+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
       }).join('');
       fitNames();
       bind();
@@ -849,10 +857,12 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 
 function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean, pinned: boolean): QuoteViewItem {
   const cls: QuoteViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
+  const code = q.symbol.slice(2);
   return {
     sym: q.symbol,
     name: q.name,
-    code: q.symbol.slice(2),
+    code,
+    board: boardOf(code),
     price: q.price.toFixed(2),
     changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
     cls,
