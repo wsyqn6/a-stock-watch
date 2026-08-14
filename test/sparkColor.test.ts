@@ -9,6 +9,6 @@ describe('webview spark color wiring', () => {
     const svgClassAssign = [...src.matchAll(/svg\.className=/g)];
     expect(svgClassAssign).toHaveLength(0);
     const setAttr = [...src.matchAll(/svg\.setAttribute\('class'/g)];
-    expect(setAttr.length).toBeGreaterThanOrEqual(4);
+    expect(setAttr.length).toBeGreaterThanOrEqual(2);
   });
 });

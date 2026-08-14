@@ -21,7 +21,6 @@ import {
   fetchNewBondApplies,
   groupByDay,
   IpoDay,
-  pad,
   boardOf,
 } from './ipo';
 
@@ -117,53 +116,50 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .up{color:var(--up)}
 .down{color:var(--down)}
 .flat{color:var(--vscode-descriptionForeground)}
+.lhead,.ipo-body .dayhead,.ipo-body .sechead,.ipofold-title{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
+.lhead .cnt,.ipo-body .dayhead .cnt{font-weight:400;letter-spacing:0;opacity:.7}
 .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
 .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
 .ipo{margin-top:auto;flex:0 0 auto}
-.ipofold{display:flex;align-items:center;gap:4px;padding:3px 8px;cursor:pointer;user-select:none}
+.ipofold{display:flex;align-items:center;gap:6px;padding:5px 12px 5px 8px;margin-top:6px;border-top:1px solid var(--vscode-panel-border);cursor:pointer;user-select:none}
 .ipofold:hover{background:var(--vscode-list-hoverBackground)}
-.ipofold-chevron{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:14px;height:16px;font-size:11px;color:var(--vscode-descriptionForeground);transition:transform .15s ease}
-.ipo.collapsed .ipofold-chevron{transform:rotate(-90deg)}
-.ipofold-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--vscode-foreground)}
-.ipofold-count{font-size:11px;font-weight:400;color:var(--vscode-descriptionForeground)}
+.ipofold-title{display:flex;align-items:center;gap:6px;color:var(--vscode-foreground)}
+.ipofold-title::before{content:'▾';font-size:16px;line-height:1;color:var(--vscode-descriptionForeground);transition:transform .15s ease}
+.ipo.collapsed .ipofold-title::before{transform:rotate(-90deg)}
+.ipofold-count{font-size:10px;font-weight:400;color:var(--vscode-descriptionForeground);white-space:nowrap}
 .ipofold-count:empty{display:none}
-.ipofold-refresh{flex:0 0 auto;width:18px;height:18px;margin-left:auto;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--vscode-descriptionForeground);border-radius:4px;opacity:0;transition:opacity .12s ease,color .12s ease,background .12s ease}
-.ipofold:hover .ipofold-refresh{opacity:.9}
+.ipofold-refresh{flex:0 0 auto;width:18px;height:18px;margin-left:auto;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--vscode-descriptionForeground);border-radius:4px;opacity:.85;transition:opacity .12s ease,color .12s ease,background .12s ease}
 .ipofold-refresh:hover{opacity:1;color:var(--vscode-foreground);background:var(--vscode-list-hoverBackground)}
 .ipofold-refresh svg{vertical-align:middle;display:block}
 .ipo-body{overflow:hidden}
 .ipo.collapsed .ipo-body{display:none}
-.ipo-body .day{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:6px;margin:6px 4px;overflow:hidden}
-.ipo-body .dayhead{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--vscode-descriptionForeground);border-bottom:1px solid var(--vscode-panel-border)}
+.ipo-body .day{margin:4px 0 8px}
+.ipo-body .dayhead{display:flex;align-items:center;gap:8px;padding:0 8px 4px;color:var(--vscode-descriptionForeground);border-bottom:1px solid var(--vscode-panel-border)}
 .ipo-body .dayhead.today{color:var(--vscode-textLink-foreground)}
-.ipo-body .dayhead .cnt{font-weight:400;letter-spacing:0;opacity:.7;margin-left:auto}
-.ipo-body .sechead{display:flex;align-items:baseline;gap:6px;padding:5px 10px 2px;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase;opacity:.85}
-.ipo-body .row{display:flex;align-items:center;padding:6px 10px;border-bottom:0}
-.ipo-body .left{flex:1;min-width:0;width:auto;max-width:none;display:flex;flex-direction:column;justify-content:center;gap:1px}
-.ipo-body .date{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
-.ipo-body .price{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.ipo-body .dayhead .cnt{margin-left:auto}
+.ipo-body .sechead{display:flex;align-items:baseline;gap:6px;padding:5px 8px 0;color:var(--vscode-descriptionForeground);opacity:.85}
+.ipo-body .price{color:var(--vscode-foreground)}
 .ipo-body .tag{font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.15;white-space:nowrap}
+.ipo-body .fill{flex:1;min-width:0}
 .ipo-body .empty{padding:8px 10px 10px;color:var(--vscode-descriptionForeground);font-size:12px}
 .ipo-body .empty.today{color:var(--vscode-editorWarning-foreground)}
-.ipo-body .foot{text-align:right;padding:6px 8px 0;font-size:10px;color:var(--vscode-descriptionForeground)}
 #app{flex:0 0 auto}
-.market{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:6px;padding:6px 8px 4px;margin:4px 4px 8px;user-select:none;flex:0 0 auto}
-.mhead{display:flex;align-items:center;gap:6px;padding:0 0 2px;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase}
-.lhead{display:flex;align-items:baseline;gap:6px;margin:8px 12px 4px;padding:0;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase;border-bottom:1px solid var(--vscode-panel-border)}
-.lhead .cnt{font-weight:400;letter-spacing:0;opacity:.7}
+.lhead{display:flex;align-items:baseline;gap:6px;margin:8px 8px 4px;padding:0;color:var(--vscode-descriptionForeground);border-bottom:1px solid var(--vscode-panel-border)}
+.market{user-select:none;flex:0 0 auto;margin:0 4px}
 .mind{display:block}
-.midx{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:4px;cursor:pointer}
+.midx{display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer}
 .midx:hover{background:var(--vscode-list-hoverBackground)}
-.midx .iname{flex:0 0 48px;font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.midx .spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px}
+.midx .iname{flex:0 0 52px;font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.midx .spark{flex:1;min-width:0;height:24px;display:block;margin:0 8px}
 .midx .right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
-.midx .ipct{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap}
-.midx .iprice{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap;opacity:.72}
-.gauge{height:3px;margin:8px 6px 0;border-radius:2px;display:flex;overflow:hidden;background:var(--vscode-editor-background);box-shadow:inset 0 0 0 1px var(--vscode-panel-border)}
+.midx .ipct{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap}
+.midx .iprice{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap}
+.gauge{height:3px;margin:4px 6px 0;border-radius:2px;display:flex;gap:2px;overflow:hidden;background:var(--vscode-editor-background)}
+.gauge .seg{border-radius:2px}
 .gauge .seg.up{background:var(--up)}
 .gauge .seg.down{background:var(--down)}
 .gauge .seg.flat{background:var(--vscode-descriptionForeground)}
-.gnums{display:flex;align-items:baseline;justify-content:space-between;padding:5px 8px 2px;font-size:10px;font-variant-numeric:tabular-nums;line-height:1;color:var(--vscode-descriptionForeground)}
+.gnums{display:flex;align-items:baseline;justify-content:space-between;padding:3px 8px 0;font-size:10px;font-variant-numeric:tabular-nums;line-height:1;color:var(--vscode-descriptionForeground)}
 .gnums .u{color:var(--up)}
 .gnums .d{color:var(--down)}
 `;
@@ -186,7 +182,6 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private bossMode = false;
   private ipoDays: IpoDay[] = [];
   private ipoError: string | null = null;
-  private ipoUpdatedAt = '';
   private refreshingIpo = false;
 
   constructor(
@@ -487,8 +482,6 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       ]);
       this.ipoDays = groupByDay(stocks, bonds);
       this.ipoError = null;
-      const now = new Date();
-      this.ipoUpdatedAt = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     } catch (err) {
       this.ipoError = err instanceof Error ? `打新数据错误: ${err.message}` : '打新数据错误';
     } finally {
@@ -505,7 +498,6 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       type: 'ipo',
       days: this.ipoDays,
       error: this.ipoError,
-      updatedAt: this.ipoUpdatedAt,
     });
   }
 
@@ -556,7 +548,6 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 <div id="app"><div class="msg">加载中…</div></div>
 <div class="ipo collapsed" id="ipo">
 <div class="ipofold" id="ipoFold" role="button" tabindex="0">
-<span class="ipofold-chevron">▾</span>
 <span class="ipofold-title">打新</span>
 <span class="ipofold-count" id="ipoCount"></span>
 <button class="ipofold-refresh" id="ipoRefreshBtn" title="刷新打新"></button>
@@ -599,16 +590,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       const r=el.querySelector('.iprice');
       r.textContent=it.price;
       const svg=el.querySelector('.spark');
-      const s=it.spark;
-      if(svg&&s&&s.line){
-        if(svg.dataset.pts!==s.line){
-          svg.dataset.pts=s.line;
-          svg.innerHTML='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
-          svg.setAttribute('class','spark '+s.color);
-        }
-      } else if(svg&&(!s||!s.line)){
-        if(svg.innerHTML!==''){svg.innerHTML='';svg.setAttribute('class','spark flat');}
-      }
+      updateSpark(svg,it.spark);
     });
     const b=m.breadth;
     if(!b)return;
@@ -634,7 +616,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const sig=m.indices.map(i=>i.sym).join(',')+'|'+(m.breadth?'1':'0');
     if(sig!==lastMkSig){
       lastMkSig=sig;
-      marketEl.innerHTML='<div class="mhead">大盘</div><div class="mind">'+m.indices.map(idxHtml).join('')+'</div>'+mkBarHtml(m.breadth);
+      marketEl.innerHTML='<div class="mind">'+m.indices.map(idxHtml).join('')+'</div>'+mkBarHtml(m.breadth);
       marketEl.querySelectorAll('.midx').forEach(el=>{
         el.addEventListener('click',()=>api.postMessage({type:'openDetail',symbol:el.dataset.ix}));
       });
@@ -663,7 +645,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   function ipoRowHtml(it){
     const board=it.board?'<span class="board">'+it.board+'</span>':'';
     return '<div class="row"><div class="left"><span class="name">'+it.name+'</span><span class="codeline"><span class="code">'+it.code+'</span>'+board+'</span></div>'+
-      '<div class="right"><span class="date">'+it.date+'</span><span class="price">'+it.price+'</span><span class="tag">'+it.tag+'</span></div></div>';
+      '<span class="fill"></span><div class="right"><span class="price">'+it.price+'</span><span class="tag">'+it.tag+'</span></div></div>';
   }
   function ipoDayHtml(d){
     const isToday=d.label.indexOf('今日')===0;
@@ -691,10 +673,10 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if(td){
       const ns=td.stocks?td.stocks.length:0;
       const nb=td.bonds?td.bonds.length:0;
-      if(ns||nb)todayInfo='今日新股'+ns+'新债'+nb;
+      if(ns||nb)todayInfo='今日股 '+ns+' · 债 '+nb;
     }
     ipoCount.textContent=todayInfo;
-    ipoBody.innerHTML=days.map(ipoDayHtml).join('')+(m.updatedAt?'<div class="foot">更新于 '+m.updatedAt+'</div>':'');
+    ipoBody.innerHTML=days.map(ipoDayHtml).join('');
   }
   window.addEventListener('message',e=>{
     const m=e.data;
@@ -718,7 +700,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
         const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
         const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
-        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="codeline"><span class="code">'+it.code+'</span>'+(it.board?'<span class="board">'+it.board+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price '+it.cls+'">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
+        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="codeline"><span class="code">'+it.code+'</span>'+(it.board?'<span class="board">'+it.board+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
       }).join('');
       fitNames();
       bind();
@@ -738,19 +720,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         const pct=row.querySelector('.pct');
         const price=row.querySelector('.price');
         if(pct){pct.textContent=it.changePct;pct.className='pct '+it.cls;}
-        if(price){price.textContent=it.price;price.className='price '+it.cls;}
-        const svg=row.querySelector('.spark');
-        const s=it.spark;
-        if(svg&&s&&s.line){
-          const curPts=svg.dataset.pts;
-          if(curPts!==s.line){
-            svg.dataset.pts=s.line;
-            svg.innerHTML='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
-            svg.setAttribute('class','spark '+s.color);
-          }
-        } else if(svg&&(!s||!s.line)){
-          if(svg.innerHTML!==''){svg.innerHTML='';svg.setAttribute('class','spark flat');}
-        }
+        if(price){price.textContent=it.price;price.className='price';}
+        updateSpark(row.querySelector('.spark'),it.spark);
       });
     }
     cur=items;
@@ -764,16 +735,27 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       while(fs>9&&el.scrollWidth>maxW){fs-=0.5;el.style.fontSize=fs+'px';}
     });
   }
+  function sparkMarkup(s){
+    return '<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
+  }
+  function updateSpark(svg,s){
+    if(!svg)return;
+    if(s&&s.line){
+      if(svg.dataset.pts!==s.line){
+        svg.dataset.pts=s.line;
+        svg.innerHTML=sparkMarkup(s);
+        svg.setAttribute('class','spark '+s.color);
+      }
+    } else if(svg.innerHTML!==''){
+      svg.innerHTML='';
+      svg.setAttribute('class','spark flat');
+    }
+  }
   function spark(it){
     const s=it.spark;
     const color=s&&s.line?s.color:'flat';
-    let inner='';
-    let pts='';
-    if(s&&s.line){
-      pts=s.line;
-      inner='<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
-    }
-    return '<svg class="spark '+color+'" data-pts="'+pts+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+inner+'</svg>';
+    const pts=s&&s.line?s.line:'';
+    return '<svg class="spark '+color+'" data-pts="'+pts+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+(s&&s.line?sparkMarkup(s):'')+'</svg>';
   }
   function bind(){
     const rows=Array.from(app.querySelectorAll('.row'));
@@ -835,9 +817,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     items.forEach(el=>el.addEventListener('click',closeMenu));
   }
   window.addEventListener('contextmenu',e=>{
-    const row=e.target.closest('.row');
-    if(!row){closeMenu();return;}
     e.preventDefault();
+    const row=e.target.closest('#app .row');
+    if(!row){closeMenu();return;}
     showMenu(e.clientX,e.clientY,cur[+row.dataset.i]);
   });
   window.addEventListener('mousedown',e=>{ if(menu&&!menu.contains(e.target))closeMenu(); });
