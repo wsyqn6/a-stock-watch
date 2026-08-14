@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Store } from './store';
 import { StockViewProvider } from './stockViewProvider';
+import { IpoViewProvider } from './ipoViewProvider';
 import { StatusBarController } from './statusBarController';
 import { searchStock, searchEastmoney, SearchResult } from './search';
 import { MoveAlarm } from './moveAlarm';
@@ -23,6 +24,9 @@ export function activate(context: vscode.ExtensionContext): void {
     void statusBar.refreshNow();
   });
   context.subscriptions.push(provider);
+
+  const ipoProvider = new IpoViewProvider();
+  context.subscriptions.push(ipoProvider);
 
   const applyBossMode = (): void => {
     const boss = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
@@ -68,6 +72,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(StockViewProvider.viewType, provider),
+  );
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(IpoViewProvider.viewType, ipoProvider),
   );
 
   context.subscriptions.push(
@@ -176,6 +184,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('a-stock-watch.refresh', () => provider.refreshNow()),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('a-stock-watch.ipoRefresh', () =>
+      ipoProvider.refreshNow(),
+    ),
   );
 
   context.subscriptions.push(

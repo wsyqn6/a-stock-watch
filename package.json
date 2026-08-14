@@ -29,6 +29,11 @@
           "id": "aStockWatch",
           "name": "A股速览",
           "type": "webview"
+        },
+        {
+          "id": "aStockWatchIpo",
+          "name": "打新",
+          "type": "webview"
         }
       ]
     },
@@ -65,6 +70,11 @@
       {
         "command": "a-stock-watch.refresh",
         "title": "刷新行情",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "a-stock-watch.ipoRefresh",
+        "title": "刷新打新",
         "icon": "$(refresh)"
       },
       {
@@ -105,6 +115,11 @@
           "command": "a-stock-watch.refresh",
           "when": "view == aStockWatch",
           "group": "navigation@4"
+        },
+        {
+          "command": "a-stock-watch.ipoRefresh",
+          "when": "view == aStockWatchIpo",
+          "group": "navigation@1"
         },
         {
           "command": "a-stock-watch.bossMode",
