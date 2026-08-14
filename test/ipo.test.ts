@@ -8,6 +8,7 @@ import {
   filterRecentApplies,
   calendarDays,
   dayLabel,
+  boardOf,
 } from '../src/ipo';
 
 const emJSON = (data: unknown[]) =>
@@ -219,5 +220,20 @@ describe('calendarDays', () => {
     expect(calendarDays('2026-08-14', '2026-08-14')).toBe(0);
     expect(calendarDays('2026-08-14', '2026-08-17')).toBe(3);
     expect(calendarDays('2026-08-18', '2026-08-14')).toBe(-4);
+  });
+});
+
+describe('boardOf', () => {
+  it('derives one-char board from code prefix', () => {
+    expect(boardOf('601123')).toBe('沪');
+    expect(boardOf('688835')).toBe('科');
+    expect(boardOf('300125')).toBe('创');
+    expect(boardOf('000001')).toBe('深');
+    expect(boardOf('002594')).toBe('深');
+    expect(boardOf('833171')).toBe('北');
+    expect(boardOf('920820')).toBe('北');
+    expect(boardOf('113050')).toBe('沪');
+    expect(boardOf('123001')).toBe('深');
+    expect(boardOf('')).toBe('');
   });
 });

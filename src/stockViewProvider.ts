@@ -16,6 +16,7 @@ import { RefreshManager } from './refreshManager';
 import { orderQuotes, SortMode } from './order';
 import { MinuteDetailPanel } from './minuteDetailPanel';
 import { getNonce } from './util';
+import { fetchNewStockApplies, fetchNewBondApplies, groupByDay, IpoDay, pad } from './ipo';
 
 export interface QuoteViewItem {
   sym: string;
@@ -60,7 +61,7 @@ const WEBVIEW_CSS = `
 body.boss{filter:grayscale(1)}
 *{box-sizing:border-box;margin:0;padding:0}
 svg[aria-hidden="true"]{position:absolute;pointer-events:none}
-body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px}
+body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px;display:flex;flex-direction:column;height:100vh}
 .row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
 .row:hover{background:var(--vscode-list-hoverBackground)}
 .row.drag{opacity:.4}
@@ -108,7 +109,43 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .flat{color:var(--vscode-descriptionForeground)}
 .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
 .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
-.market{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:6px;padding:6px 8px 4px;margin:4px 4px 8px;user-select:none}
+.ipo{margin-top:auto;flex:0 0 auto}
+.ipofold{display:flex;align-items:center;gap:4px;padding:3px 8px;cursor:pointer;user-select:none}
+.ipofold:hover{background:var(--vscode-list-hoverBackground)}
+.ipofold-chevron{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:14px;height:16px;font-size:11px;color:var(--vscode-descriptionForeground);transition:transform .15s ease}
+.ipo.collapsed .ipofold-chevron{transform:rotate(-90deg)}
+.ipofold-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--vscode-foreground)}
+.ipofold-count{font-size:11px;font-weight:400;color:var(--vscode-descriptionForeground)}
+.ipofold-count:empty{display:none}
+.ipofold-refresh{flex:0 0 auto;width:18px;height:18px;margin-left:auto;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--vscode-descriptionForeground);border-radius:4px;opacity:0;transition:opacity .12s ease,color .12s ease,background .12s ease}
+.ipofold:hover .ipofold-refresh{opacity:.9}
+.ipofold-refresh:hover{opacity:1;color:var(--vscode-foreground);background:var(--vscode-list-hoverBackground)}
+.ipofold-refresh svg{vertical-align:middle;display:block}
+.ipo-body{overflow:hidden}
+.ipo.collapsed .ipo-body{display:none}
+.ipo-body .day{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:6px;margin:6px 4px;overflow:hidden}
+.ipo-body .dayhead{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--vscode-descriptionForeground);border-bottom:1px solid var(--vscode-panel-border)}
+.ipo-body .dayhead.today{color:var(--vscode-textLink-foreground)}
+.ipo-body .dayhead .cnt{font-weight:400;letter-spacing:0;opacity:.7;margin-left:auto}
+.ipo-body .sechead{display:flex;align-items:baseline;gap:6px;padding:5px 10px 2px;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase;opacity:.85}
+.ipo-body .row{display:flex;align-items:center;padding:6px 10px;border-bottom:0}
+.ipo-body .row:hover{background:var(--vscode-list-hoverBackground)}
+.ipo-body .left{flex:1;min-width:0;width:auto;max-width:none;display:flex;flex-direction:column;justify-content:center;gap:1px}
+.ipo-body .right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
+.ipo-body .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ipo-body .codeline{display:flex;align-items:center;gap:5px;min-width:0}
+.ipo-body .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
+.ipo-body .board{flex:0 0 auto;font-size:9px;line-height:1.6;color:var(--vscode-descriptionForeground);border:1px solid var(--vscode-widget-border);border-radius:4px;padding:0 4px;white-space:nowrap}
+.ipo-body .date{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
+.ipo-body .price{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.ipo-body .tag{font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.15;white-space:nowrap}
+.ipo-body .empty{padding:8px 10px 10px;color:var(--vscode-descriptionForeground);font-size:12px}
+.ipo-body .empty.today{color:var(--vscode-editorWarning-foreground)}
+.ipo-body .foot{text-align:right;padding:6px 8px 0;font-size:10px;color:var(--vscode-descriptionForeground)}
+.ipo-body .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
+.ipo-body .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
+#app{flex:0 0 auto}
+.market{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:6px;padding:6px 8px 4px;margin:4px 4px 8px;user-select:none;flex:0 0 auto}
 .mhead{display:flex;align-items:center;gap:6px;padding:0 0 2px;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase}
 .lhead{display:flex;align-items:baseline;gap:6px;margin:8px 12px 4px;padding:0;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase;border-bottom:1px solid var(--vscode-panel-border)}
 .lhead .cnt{font-weight:400;letter-spacing:0;opacity:.7}
@@ -145,6 +182,10 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private sortMode: SortMode = 'manual';
   private editMode = false;
   private bossMode = false;
+  private ipoDays: IpoDay[] = [];
+  private ipoError: string | null = null;
+  private ipoUpdatedAt = '';
+  private refreshingIpo = false;
 
   constructor(
     private readonly store: Store,
@@ -164,6 +205,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         this.push();
         this.pushEditMode();
         void this.refreshMinute();
+        void this.refreshIpo();
+      } else if (type === 'ipoRefresh') {
+        void this.refreshIpo();
       } else if (type === 'remove') {
         const symbol = (msg as { symbol?: unknown }).symbol;
         if (typeof symbol === 'string' && this.store.remove(symbol)) {
@@ -221,6 +265,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (this.view?.visible) {
       this.startMinuteTimer();
       void this.refreshMinute();
+      void this.refreshIpo();
     } else {
       this.stopMinuteTimer();
     }
@@ -427,6 +472,41 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /** 拉取未来 3 个交易日新股/新债申购；失败显示错误。与行情独立刷新。 */
+  async refreshIpo(): Promise<void> {
+    if (this.refreshingIpo) {
+      return;
+    }
+    this.refreshingIpo = true;
+    try {
+      const [stocks, bonds] = await Promise.all([
+        fetchNewStockApplies(),
+        fetchNewBondApplies(),
+      ]);
+      this.ipoDays = groupByDay(stocks, bonds);
+      this.ipoError = null;
+      const now = new Date();
+      this.ipoUpdatedAt = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    } catch (err) {
+      this.ipoError = err instanceof Error ? `打新数据错误: ${err.message}` : '打新数据错误';
+    } finally {
+      this.refreshingIpo = false;
+    }
+    this.pushIpo();
+  }
+
+  private pushIpo(): void {
+    if (!this.view || !this.view.visible) {
+      return;
+    }
+    void this.view.webview.postMessage({
+      type: 'ipo',
+      days: this.ipoDays,
+      error: this.ipoError,
+      updatedAt: this.ipoUpdatedAt,
+    });
+  }
+
   private ordered(): StockQuote[] {
     return orderQuotes(this.quotes, this.sortMode, new Set(this.store.getPinned()));
   }
@@ -472,6 +552,15 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 <svg width="0" height="0" aria-hidden="true"><defs><linearGradient id="gUp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--up);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--up);stop-opacity:0"/></linearGradient><linearGradient id="gDown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--down);stop-opacity:0.5"/><stop offset="1" style="stop-color:var(--down);stop-opacity:0"/></linearGradient></defs></svg>
 <div id="market" class="market"></div>
 <div id="app"><div class="msg">加载中…</div></div>
+<div class="ipo collapsed" id="ipo">
+<div class="ipofold" id="ipoFold" role="button" tabindex="0">
+<span class="ipofold-chevron">▾</span>
+<span class="ipofold-title">打新</span>
+<span class="ipofold-count" id="ipoCount"></span>
+<button class="ipofold-refresh" id="ipoRefreshBtn" title="刷新打新"></button>
+</div>
+<div class="ipo-body" id="ipoBody"><div class="msg">加载中…</div></div>
+</div>
 <script nonce="${nonce}">
 (function(){
   const app=document.getElementById('app');
@@ -479,6 +568,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   const api=acquireVsCodeApi();
   const PIN_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5z" fill="currentColor"></path><circle cx="8" cy="6" r="1.7" fill="var(--vscode-editor-background)"></circle></svg>';
   const TOP_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M9.6 1.4l5 5-1 1-1.4-1.4-1.9 1.9.9 2.1-2.8 2.8-2.6-2.6L4 14l-2-2 3.8-2.8-2.6-2.6 2.8-2.8 2.1.9 1.9-1.9-1.4-1.4z" fill="currentColor"/></svg>';
+  const REFRESH_SVG='<svg viewBox="0 0 16 16" width="12" height="12"><path d="M13.65 2.35A6.96 6.96 0 0 0 8.5 1a6.5 6.5 0 1 0 6.34 8.5h-1.7A5 5 0 1 1 8.5 3c1.4 0 2.68.55 3.62 1.47L9.5 7h5V2l-.85.85z" fill="currentColor"/></svg>';
   api.postMessage({type:'ready'});
   let editing=false;
   let cur=[];
@@ -549,10 +639,66 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
     setMkValues(m);
   }
+  const ipoEl=document.getElementById('ipo');
+  const ipoBody=document.getElementById('ipoBody');
+  const ipoCount=document.getElementById('ipoCount');
+  const ipoFold=document.getElementById('ipoFold');
+  const ipoRefreshBtn=document.getElementById('ipoRefreshBtn');
+  let ipoCollapsed=true;
+  function setIpoCollapsed(c){
+    ipoCollapsed=c;
+    ipoEl.classList.toggle('collapsed',c);
+  }
+  ipoRefreshBtn.innerHTML=REFRESH_SVG;
+  ipoRefreshBtn.addEventListener('click',(e)=>{
+    e.stopPropagation();
+    api.postMessage({type:'ipoRefresh'});
+  });
+  ipoFold.addEventListener('click',()=>setIpoCollapsed(!ipoCollapsed));
+  ipoFold.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){e.preventDefault();setIpoCollapsed(!ipoCollapsed);}
+  });
+  function ipoRowHtml(it){
+    const board=it.board?'<span class="board">'+it.board+'</span>':'';
+    return '<div class="row"><div class="left"><span class="name">'+it.name+'</span><span class="codeline"><span class="code">'+it.code+'</span>'+board+'</span></div>'+
+      '<div class="right"><span class="date">'+it.date+'</span><span class="price">'+it.price+'</span><span class="tag">'+it.tag+'</span></div></div>';
+  }
+  function ipoDayHtml(d){
+    const isToday=d.label.indexOf('今日')===0;
+    const n=(d.stocks?d.stocks.length:0)+(d.bonds?d.bonds.length:0);
+    const head='<div class="dayhead'+(isToday?' today':'')+'">'+d.label+'<span class="cnt">'+n+' 项</span></div>';
+    let body='';
+    if(n===0){
+      body='<div class="empty'+(isToday?' today':'')+'">'+(isToday?'今日无新股/新债申购':'该日无新股/新债申购')+'</div>';
+    } else {
+      if(d.stocks&&d.stocks.length)body+='<div class="sechead">新股</div>'+d.stocks.map(ipoRowHtml).join('');
+      if(d.bonds&&d.bonds.length)body+='<div class="sechead">新债</div>'+d.bonds.map(ipoRowHtml).join('');
+    }
+    return '<div class="day">'+head+body+'</div>';
+  }
+  function renderIpo(m){
+    if(m.error){ipoBody.innerHTML='<div class="warn">'+m.error+'</div>';ipoCount.textContent='';return;}
+    const days=m.days||[];
+    if(days.length===0){
+      ipoBody.innerHTML='<div class="msg">未来 3 个交易日暂无新股/新债申购</div>';
+      ipoCount.textContent='';
+      return;
+    }
+    let todayInfo='';
+    const td=days.find(d=>d.label.indexOf('今日')===0);
+    if(td){
+      const ns=td.stocks?td.stocks.length:0;
+      const nb=td.bonds?td.bonds.length:0;
+      if(ns||nb)todayInfo='今日新股'+ns+'新债'+nb;
+    }
+    ipoCount.textContent=todayInfo;
+    ipoBody.innerHTML=days.map(ipoDayHtml).join('')+(m.updatedAt?'<div class="foot">更新于 '+m.updatedAt+'</div>':'');
+  }
   window.addEventListener('message',e=>{
     const m=e.data;
     if(!m)return;
     if(m.type==='editMode'){ editing=!!m.value; document.body.classList.toggle('editing',editing); if(cur.length)render(cur); return; }
+    if(m.type==='ipo'){ renderIpo(m); return; }
     if(m.type!=='quotes')return;
     document.body.classList.toggle('boss',!!m.boss);
     renderMarket(m.market);

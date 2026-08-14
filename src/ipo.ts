@@ -170,3 +170,96 @@ export function dayLabel(date: string, today: string): string {
   if (diff === 1) return `明日 ${short}`;
   return `${weekday(date)} ${short}`;
 }
+
+/** 打新列表单行（已预格式化，webview 只负责渲染）。 */
+export interface IpoRow {
+  name: string;
+  code: string;
+  date: string;
+  price: string;
+  tag: string;
+  /** 板块标注：沪/深/创/科/北。 */
+  board: string;
+}
+
+/** 按代码前缀推导板块（单字）。 */
+export function boardOf(code: string): string {
+  if (code.startsWith('688') || code.startsWith('689')) return '科';
+  if (code.startsWith('300') || code.startsWith('301')) return '创';
+  if (code.startsWith('60')) return '沪';
+  if (code.startsWith('00')) return '深';
+  if (code.startsWith('8') || code.startsWith('4') || code.startsWith('92')) return '北';
+  if (code.startsWith('11')) return '沪';
+  if (code.startsWith('12')) return '深';
+  return '';
+}
+
+/** 单个交易日分组。 */
+export interface IpoDay {
+  date: string;
+  label: string;
+  stocks: IpoRow[];
+  bonds: IpoRow[];
+}
+
+function toStockRow(s: NewStockApply): IpoRow {
+  const price = s.issuePrice !== undefined ? `${s.issuePrice.toFixed(2)} 元` : '待定价';
+  const parts: string[] = [];
+  if (s.topMcapWan !== undefined) {
+    parts.push(`顶格 ${s.topMcapWan} 万`);
+  }
+  if (s.applyUpperWan !== undefined) {
+    parts.push(`上限 ${s.applyUpperWan} 万股`);
+  }
+  return {
+    name: s.name,
+    code: s.code,
+    date: s.applyDate.slice(5),
+    price,
+    tag: parts.join(' · '),
+    board: boardOf(s.code),
+  };
+}
+
+function toBondRow(b: NewBondApply): IpoRow {
+  const parts: string[] = [];
+  if (b.scaleYi !== undefined) {
+    parts.push(`规模 ${b.scaleYi} 亿`);
+  }
+  parts.push(b.transferPrice !== undefined ? `转股价 ${b.transferPrice} 元` : '转股价待定');
+  return {
+    name: b.name,
+    code: b.code,
+    date: b.applyDate.slice(5),
+    price: b.convertStock ? `正股 ${b.convertStock}` : '—',
+    tag: parts.join(' · '),
+    board: boardOf(b.code),
+  };
+}
+
+export function groupByDay(stocks: NewStockApply[], bonds: NewBondApply[]): IpoDay[] {
+  const dates = nextTradingDays(3);
+  const today = dashDate(beijingDateStr());
+  const stockBy = new Map<string, NewStockApply[]>();
+  const bondBy = new Map<string, NewBondApply[]>();
+  for (const s of stocks) {
+    const list = stockBy.get(s.applyDate) ?? [];
+    list.push(s);
+    stockBy.set(s.applyDate, list);
+  }
+  for (const b of bonds) {
+    const list = bondBy.get(b.applyDate) ?? [];
+    list.push(b);
+    bondBy.set(b.applyDate, list);
+  }
+  return dates.map((date) => ({
+    date,
+    label: dayLabel(date, today),
+    stocks: (stockBy.get(date) ?? []).map(toStockRow),
+    bonds: (bondBy.get(date) ?? []).map(toBondRow),
+  }));
+}
+
+export function pad(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
