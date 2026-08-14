@@ -139,19 +139,13 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .ipo-body .dayhead .cnt{font-weight:400;letter-spacing:0;opacity:.7;margin-left:auto}
 .ipo-body .sechead{display:flex;align-items:baseline;gap:6px;padding:5px 10px 2px;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase;opacity:.85}
 .ipo-body .row{display:flex;align-items:center;padding:6px 10px;border-bottom:0}
-.ipo-body .row:hover{background:var(--vscode-list-hoverBackground)}
 .ipo-body .left{flex:1;min-width:0;width:auto;max-width:none;display:flex;flex-direction:column;justify-content:center;gap:1px}
-.ipo-body .right{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;gap:1px;align-items:flex-end;text-align:right}
-.ipo-body .name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ipo-body .code{font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
 .ipo-body .date{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
 .ipo-body .price{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
 .ipo-body .tag{font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.15;white-space:nowrap}
 .ipo-body .empty{padding:8px 10px 10px;color:var(--vscode-descriptionForeground);font-size:12px}
 .ipo-body .empty.today{color:var(--vscode-editorWarning-foreground)}
 .ipo-body .foot{text-align:right;padding:6px 8px 0;font-size:10px;color:var(--vscode-descriptionForeground)}
-.ipo-body .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
-.ipo-body .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
 #app{flex:0 0 auto}
 .market{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:6px;padding:6px 8px 4px;margin:4px 4px 8px;user-select:none;flex:0 0 auto}
 .mhead{display:flex;align-items:center;gap:6px;padding:0 0 2px;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--vscode-descriptionForeground);text-transform:uppercase}
