@@ -29,6 +29,12 @@
           "id": "aStockWatch",
           "name": "A股速览",
           "type": "webview"
+        },
+        {
+          "id": "aStockTelegraph",
+          "name": "电报",
+          "type": "webview",
+          "when": "aStockWatch.showTelegraph"
         }
       ]
     },
@@ -73,6 +79,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "a-stock-watch.telegraphRefresh",
+        "title": "刷新电报",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "a-stock-watch.bossMode",
         "title": "老板模式",
         "icon": "$(eye)"
@@ -84,6 +95,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "a-stock-watch.telegraphRefresh",
+          "when": "view == aStockTelegraph",
+          "group": "navigation@1"
+        },
         {
           "command": "a-stock-watch.add",
           "when": "view == aStockWatch",
@@ -199,6 +215,18 @@
           "default": [],
           "scope": "window",
           "description": "状态栏显示的股票代码（须为自选股成员，最多3只，数组顺序即状态栏顺序，可在设置中直接编辑）"
+        },
+        "aStockWatch.showTelegraph": {
+          "type": "boolean",
+          "default": false,
+          "description": "显示财联社电报：开启后在自选视图下方显示独立电报视图（原生折叠，可见才轮询，关闭零请求）"
+        },
+        "aStockWatch.telegraphIntervalSec": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 600,
+          "description": "电报刷新间隔（秒），电报 24 小时滚动发布，不受交易时段限制"
         },
         "aStockWatch.bigMoveAlert": {
           "type": "boolean",

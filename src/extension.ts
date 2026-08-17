@@ -4,6 +4,7 @@ import { StockViewProvider } from './stockViewProvider';
 import { StatusBarController } from './statusBarController';
 import { searchStock, searchEastmoney, SearchResult } from './search';
 import { MoveAlarm } from './moveAlarm';
+import { TelegraphView } from './telegraphView';
 
 interface PickItem extends vscode.QuickPickItem {
   result?: SearchResult;
@@ -32,6 +33,18 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   applyBossMode();
 
+  const applyTelegraph = (): void => {
+    const show = !!vscode.workspace.getConfiguration('aStockWatch').get('showTelegraph');
+    void vscode.commands.executeCommand('setContext', 'aStockWatch.showTelegraph', show);
+  };
+  applyTelegraph();
+
+  const telegraph = new TelegraphView();
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(TelegraphView.viewType, telegraph),
+    telegraph,
+  );
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('aStockWatch.watchlist')) {
@@ -58,6 +71,15 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       if (e.affectsConfiguration('aStockWatch.bossMode')) {
         applyBossMode();
+      }
+      if (e.affectsConfiguration('aStockWatch.showTelegraph')) {
+        applyTelegraph();
+        if (telegraph.visible) {
+          telegraph.start();
+        }
+      }
+      if (e.affectsConfiguration('aStockWatch.telegraphIntervalSec') && telegraph.visible) {
+        telegraph.start();
       }
     }),
   );
@@ -179,6 +201,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('a-stock-watch.refresh', () => provider.refreshNow()),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('a-stock-watch.telegraphRefresh', () => telegraph.refresh()),
   );
 
   context.subscriptions.push(
