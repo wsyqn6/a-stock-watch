@@ -53,6 +53,9 @@ export function activate(context: vscode.ExtensionContext): void {
       ) {
         provider.refreshNow();
       }
+      if (e.affectsConfiguration('aStockWatch.showIpo')) {
+        void provider.refreshIpo();
+      }
       if (e.affectsConfiguration('aStockWatch.bossMode')) {
         applyBossMode();
       }

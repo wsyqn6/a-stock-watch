@@ -1,12 +1,14 @@
 # A股速览
 
-![License](https://img.shields.io/badge/license-MIT-brightgreen)
+[![GitHub stars](https://img.shields.io/github/stars/wsyqn6/a-stock-watch?style=social&label=Star)](https://github.com/wsyqn6/a-stock-watch) ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 ![VS Code](https://img.shields.io/badge/vscode-%5E1.90.0-blue)
 ![Version](https://vsmarketplacebadges.dev/version-short/wsyqn6.a-stock-watch.svg)
 ![Open VSX Version](https://img.shields.io/open-vsx/v/wsyqn6/a-stock-watch)
 ![最近提交](https://img.shields.io/github/last-commit/wsyqn6/a-stock-watch)
 
 在 VS Code 侧边栏实时查看 A 股自选股行情，支持分时迷你走势图、置顶、右键快捷操作与排序。
+
+喜欢这个扩展？给个 ⭐ [Star](https://github.com/wsyqn6/a-stock-watch) 支持一下～
 
 
 ![截图](media/zx1.webp)
@@ -47,7 +49,7 @@ CodeBuddy IDE / VSCodium / Cursor 等基于 Open VSX 的编辑器，扩展面板
 
 本扩展刻意追求轻量，不占资源、不干扰工作：
 
-- **完全开源 · MIT**：源码全部公开在 [GitHub](https://github.com/wsyqn6/a-stock-watch)，零闭源组件，可自由使用 / 修改 / 分发（含商用）
+- **完全开源 · MIT**：源码全部公开在 [GitHub](https://github.com/wsyqn6/a-stock-watch) [![GitHub stars](https://img.shields.io/github/stars/wsyqn6/a-stock-watch?style=social&label=Star)](https://github.com/wsyqn6/a-stock-watch)，零闭源组件，可自由使用 / 修改 / 分发（含商用）
 - **零框架依赖**：原生 WebView + 原生 TS，无任何运行时依赖，加载即用
 - **单一职责**：只专注自选股行情，界面克制，不做功能堆砌
 - **低资源占用**：无后台进程、无常驻子进程，默认侧边栏隐藏即完全零开销

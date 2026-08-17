@@ -469,8 +469,19 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  /** 拉取未来 3 个交易日新股/新债申购；失败显示错误。与行情独立刷新。 */
+  /** 拉取未来 3 个交易日新股/新债申购；失败显示错误。与行情独立刷新。showIpo 关闭时清空并隐藏，不请求。 */
   async refreshIpo(): Promise<void> {
+    const showIpo = vscode.workspace
+      .getConfiguration('aStockWatch')
+      .get<boolean>('showIpo', true);
+    if (!showIpo) {
+      if (this.ipoDays.length > 0 || this.ipoError !== null) {
+        this.ipoDays = [];
+        this.ipoError = null;
+      }
+      this.pushIpo();
+      return;
+    }
     if (this.refreshingIpo) {
       return;
     }
@@ -494,8 +505,12 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (!this.view || !this.view.visible) {
       return;
     }
+    const show = vscode.workspace
+      .getConfiguration('aStockWatch')
+      .get<boolean>('showIpo', true);
     void this.view.webview.postMessage({
       type: 'ipo',
+      show,
       days: this.ipoDays,
       error: this.ipoError,
     });
@@ -661,6 +676,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     return '<div class="day">'+head+body+'</div>';
   }
   function renderIpo(m){
+    ipoEl.style.display=m.show?'':'none';
+    if(!m.show)return;
     if(m.error){ipoBody.innerHTML='<div class="warn">'+m.error+'</div>';ipoCount.textContent='';return;}
     const days=m.days||[];
     if(days.length===0){
