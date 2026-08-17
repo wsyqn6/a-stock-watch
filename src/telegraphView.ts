@@ -3,9 +3,9 @@ import {
   fetchTelegraph,
   fmtPct,
   fmtReading,
-  groupTelegraph,
   pctSign,
   TelegraphItem,
+  toTelegraphDisplayItem,
 } from './telegraph';
 import { getNonce } from './util';
 
@@ -23,18 +23,12 @@ interface DisplayItem {
   stocks: DisplayStock[];
 }
 
-interface DisplayGroup {
-  label: string;
-  items: DisplayItem[];
-}
-
 const DEFAULT_INTERVAL_SEC = 30;
 const MAX_ITEMS = 100;
 
 const CSS = `
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:0 4px 8px}
-.dayhead{display:flex;align-items:baseline;gap:6px;padding:8px 8px 4px;border-bottom:1px solid var(--vscode-panel-border);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--vscode-descriptionForeground)}
 .row{padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border)}
 .row:hover{background:var(--vscode-list-hoverBackground)}
 .meta{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:2px}
@@ -143,27 +137,27 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     }
     void this.view.webview.postMessage({
       type: 'data',
-      groups: this.toDisplay(),
+      items: this.toDisplay(),
       error: this.error,
     });
   }
 
   /** host 侧算好展示字符串，webview 只做转义渲染。 */
-  private toDisplay(): DisplayGroup[] {
-    return groupTelegraph(this.items).map((g) => ({
-      label: g.label,
-      items: g.items.map((it) => ({
-        time: it.time,
-        text: it.text,
-        badge: it.level === 'A' ? '重磅' : it.level === 'B' ? '重要' : '',
-        reading: it.reading > 0 ? fmtReading(it.reading) : '',
-        stocks: it.stocks.map((s) => ({
+  private toDisplay(): DisplayItem[] {
+    return this.items.map((it): DisplayItem => {
+      const row = toTelegraphDisplayItem(it);
+      return {
+        time: row.time,
+        text: row.text,
+        badge: row.level === 'A' ? '重磅' : row.level === 'B' ? '重要' : '',
+        reading: row.reading > 0 ? fmtReading(row.reading) : '',
+        stocks: row.stocks.map((s) => ({
           name: s.name,
           pct: fmtPct(s.pct),
           sign: pctSign(s.pct),
         })),
-      })),
-    }));
+      };
+    });
   }
 
   private html(): string {
@@ -185,22 +179,19 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
   function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function render(m){
     if(m.error){root.innerHTML='<div class="warn">'+esc(m.error)+'</div>';return;}
-    const gs=m.groups||[];
-    if(gs.length===0){root.innerHTML='<div class="msg">暂无电报</div>';return;}
-    root.innerHTML=gs.map(g=>
-      '<div class="dayhead">'+esc(g.label)+'</div>'+
-      g.items.map(function(it){
-        const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
-          (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
-          (it.reading?'<span class="reading">'+esc(it.reading)+'</span>':'')+'</div>';
-        const chips=it.stocks.map(function(s){
-          return '<span class="chip '+s.sign+'">'+esc(s.name)+(s.pct?' '+s.pct:'')+'</span>';
-        }).join('');
-        return '<div class="row'+(it.badge?' imp':'')+'">'+meta+
-          '<div class="text">'+esc(it.text)+'</div>'+
-          (chips?'<div class="stocks">'+chips+'</div>':'')+'</div>';
-      }).join('')
-    ).join('');
+    const items=m.items||[];
+    if(items.length===0){root.innerHTML='<div class="msg">暂无电报</div>';return;}
+    root.innerHTML=items.map(function(it){
+      const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
+        (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
+        (it.reading?'<span class="reading">'+esc(it.reading)+'</span>':'')+'</div>';
+      const chips=it.stocks.map(function(s){
+        return '<span class="chip '+s.sign+'">'+esc(s.name)+(s.pct?' '+s.pct:'')+'</span>';
+      }).join('');
+      return '<div class="row'+(it.badge?' imp':'')+'">'+meta+
+        '<div class="text">'+esc(it.text)+'</div>'+
+        (chips?'<div class="stocks">'+chips+'</div>':'')+'</div>';
+    }).join('');
   }
   window.addEventListener('message',e=>{const m=e.data;if(m&&m.type==='data')render(m);});
 })();

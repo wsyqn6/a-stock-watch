@@ -4,9 +4,9 @@ import {
   fmtPct,
   fmtReading,
   formatTelegraphTime,
-  groupTelegraph,
   parseTelegraphResponse,
   pctSign,
+  toTelegraphDisplayItem,
 } from '../src/telegraph';
 
 describe('buildTelegraphQuery', () => {
@@ -164,36 +164,31 @@ describe('formatTelegraphTime', () => {
   });
 });
 
-describe('groupTelegraph', () => {
+describe('toTelegraphDisplayItem', () => {
   const now = new Date('2026-08-17T04:00:00Z');
-  const item = (id: number, iso: string) => ({
-    id,
-    title: `T${id}`,
-    brief: `B${id}`,
-    content: `C${id}`,
-    level: 'C',
-    reading: 100,
-    stocks: [],
-    url: `https://www.cls.cn/detail/${id}`,
-    ctime: Date.parse(iso),
+  const item = {
+    id: 1,
+    title: '标题',
+    brief: '摘要',
+    content: '全量正文',
+    level: 'B',
+    reading: 422843,
+    stocks: [{ name: '国航远洋', pct: 4.68 }],
+    url: 'https://www.cls.cn/detail/1',
+    ctime: Date.parse('2026-08-17T02:00:00Z'),
+  };
+
+  it('flattens item with time/text/level/reading/stocks', () => {
+    expect(toTelegraphDisplayItem(item, now)).toEqual({
+      time: '10:00',
+      text: '全量正文',
+      level: 'B',
+      reading: 422843,
+      stocks: [{ name: '国航远洋', pct: 4.68 }],
+    });
   });
 
-  it('groups by Beijing day, preserving order', () => {
-    const groups = groupTelegraph(
-      [
-        item(1, '2026-08-17T02:00:00Z'),
-        item(2, '2026-08-17T01:00:00Z'),
-        item(3, '2026-08-16T03:00:00Z'),
-        item(4, '2026-08-10T03:00:00Z'),
-      ],
-      now,
-    );
-    expect(groups.map((g) => g.label)).toEqual(['今天', '昨天', '08-10']);
-    expect(groups[0].items.map((i) => i.text)).toEqual(['C1', 'C2']);
-    expect(groups[1].items[0].time).toBe('昨天 11:00');
-  });
-
-  it('returns [] for empty input', () => {
-    expect(groupTelegraph([], now)).toEqual([]);
+  it('falls back to title when content empty', () => {
+    expect(toTelegraphDisplayItem({ ...item, content: '' }, now).text).toBe('标题');
   });
 });

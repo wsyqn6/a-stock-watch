@@ -117,7 +117,7 @@ export async function fetchTelegraph(): Promise<TelegraphItem[]> {
   return parseTelegraphResponse(await res.text());
 }
 
-export interface TelegraphGroupItem {
+export interface TelegraphDisplayItem {
   time: string;
   text: string;
   level: string;
@@ -125,9 +125,14 @@ export interface TelegraphGroupItem {
   stocks: TelegraphStock[];
 }
 
-export interface TelegraphGroup {
-  label: string;
-  items: TelegraphGroupItem[];
+export function toTelegraphDisplayItem(it: TelegraphItem, now: Date = new Date()): TelegraphDisplayItem {
+  return {
+    time: formatTelegraphTime(it.ctime, now),
+    text: it.content || it.title || it.brief,
+    level: it.level,
+    reading: it.reading,
+    stocks: it.stocks,
+  };
 }
 
 /** 阅读数展示：≥1万 → 42.3万（去 .0）；<1万 → 原始数字。 */
@@ -178,38 +183,4 @@ export function formatTelegraphTime(ts: number, now: Date = new Date()): string 
     return `昨天 ${hm}`;
   }
   return `${ds.slice(4, 6)}-${ds.slice(6)} ${hm}`;
-}
-
-function dayLabel(ts: number, now: Date): string {
-  const ds = beijingDateStr(new Date(ts));
-  const today = beijingDateStr(now);
-  if (ds === today) {
-    return '今天';
-  }
-  const yesterday = beijingDateStr(new Date(now.getTime() - 86_400_000));
-  if (ds === yesterday) {
-    return '昨天';
-  }
-  return `${ds.slice(4, 6)}-${ds.slice(6)}`;
-}
-
-/** 按北京时间天分组，保持传入顺序（调用方已按 ctime 倒序）。 */
-export function groupTelegraph(items: TelegraphItem[], now: Date = new Date()): TelegraphGroup[] {
-  const groups: TelegraphGroup[] = [];
-  let cur: TelegraphGroup | null = null;
-  for (const it of items) {
-    const label = dayLabel(it.ctime, now);
-    if (!cur || cur.label !== label) {
-      cur = { label, items: [] };
-      groups.push(cur);
-    }
-    cur.items.push({
-      time: formatTelegraphTime(it.ctime, now),
-      text: it.content || it.title || it.brief,
-      level: it.level,
-      reading: it.reading,
-      stocks: it.stocks,
-    });
-  }
-  return groups;
 }
