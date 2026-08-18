@@ -219,6 +219,15 @@ export function activate(context: vscode.ExtensionContext): void {
         .update('bossMode', !cur, vscode.ConfigurationTarget.Global);
     }),
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('a-stock-watch.openSettings', () => {
+      void vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        '@ext:wsyqn6.a-stock-watch',
+      );
+    }),
+  );
 }
 
 export function deactivate(): void {}

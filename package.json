@@ -2,7 +2,7 @@
   "name": "a-stock-watch",
   "displayName": "A股速览",
   "description": "A-share (Chinese stock) watchlist with real-time quotes in the VS Code sidebar",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "publisher": "wsyqn6",
   "private": true,
   "repository": {
@@ -91,6 +91,11 @@
       {
         "command": "a-stock-watch.show",
         "title": "显示自选股"
+      },
+      {
+        "command": "a-stock-watch.openSettings",
+        "title": "设置",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
@@ -140,6 +145,11 @@
           "group": "navigation@5",
           "icon": "$(eye-closed)",
           "title": "退出老板模式"
+        },
+        {
+          "command": "a-stock-watch.openSettings",
+          "when": "view == aStockWatch",
+          "group": "navigation@6"
         }
       ]
     },
@@ -152,40 +162,10 @@
     "configuration": {
       "title": "A股速览",
       "properties": {
-        "aStockWatch.bossMode": {
-          "type": "boolean",
-          "default": false,
-          "description": "老板模式：开启后界面全部灰显，低调不显眼"
-        },
-        "aStockWatch.showIpo": {
-          "type": "boolean",
-          "default": true,
-          "description": "显示打新：新股/新债申购列表（折叠于自选视图底部）。关闭后不请求打新数据"
-        },
-        "aStockWatch.showMarketBar": {
-          "type": "boolean",
-          "default": true,
-          "description": "显示大盘概览条：指数行情与迷你分时图 + 沪深涨跌家数进度条（仅侧边栏可见时请求）"
-        },
-        "aStockWatch.marketIndex": {
-          "type": "string",
-          "enum": [
-            "sh000001",
-            "sz399001",
-            "sz399006"
-          ],
-          "default": "sh000001",
-          "enumDescriptions": [
-            "上证指数",
-            "深证成指",
-            "创业板指"
-          ],
-          "description": "大盘概览条展示的指数（含迷你分时图，点击可看详情）"
-        },
         "aStockWatch.refreshIntervalSec": {
           "type": "number",
           "default": 3,
-          "minimum": 1,
+          "minimum": 3,
           "maximum": 120,
           "description": "行情刷新间隔（秒）"
         },
@@ -216,6 +196,31 @@
           "scope": "window",
           "description": "状态栏显示的股票代码（须为自选股成员，最多3只，数组顺序即状态栏顺序，可在设置中直接编辑）"
         },
+        "aStockWatch.showMarketBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "显示大盘概览条：指数行情与迷你分时图 + 沪深涨跌家数进度条（仅侧边栏可见时请求）"
+        },
+        "aStockWatch.marketIndex": {
+          "type": "string",
+          "enum": [
+            "sh000001",
+            "sz399001",
+            "sz399006"
+          ],
+          "default": "sh000001",
+          "enumDescriptions": [
+            "上证指数",
+            "深证成指",
+            "创业板指"
+          ],
+          "description": "大盘概览条展示的指数（含迷你分时图，点击可看详情）"
+        },
+        "aStockWatch.showIpo": {
+          "type": "boolean",
+          "default": true,
+          "description": "显示打新：新股/新债申购列表（折叠于自选视图底部）。关闭后不请求打新数据"
+        },
         "aStockWatch.showTelegraph": {
           "type": "boolean",
           "default": false,
@@ -224,7 +229,7 @@
         "aStockWatch.telegraphIntervalSec": {
           "type": "number",
           "default": 30,
-          "minimum": 10,
+          "minimum": 15,
           "maximum": 600,
           "description": "电报刷新间隔（秒），电报 24 小时滚动发布，不受交易时段限制"
         },
@@ -246,6 +251,11 @@
           "minimum": 1,
           "maximum": 240,
           "description": "大幅异动通知冷却时间（分钟），冷却期内同一股票同一方向不再重复通知"
+        },
+        "aStockWatch.bossMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "老板模式：开启后界面全部灰显，低调不显眼"
         }
       }
     }
