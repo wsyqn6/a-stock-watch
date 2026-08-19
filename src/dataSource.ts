@@ -91,7 +91,7 @@ export interface MarketBreadth {
   flat: number;
 }
 
-/** 东财市场涨跌家数接口：`f104` 上涨 / `f105` 下跌 / `f106` 平盘。多主机兜底防限流。 */
+/** 东财市场涨跌家数接口：`f104` 上涨 / `f105` 下跌 / `f106` 平盘。secids 覆盖沪深京全 A（上证指数、深证成指、北证指数），指数口径按各自成分股（沪A/深A/京A，不含 B 股，上证50 验证）。多主机兜底防限流。 */
 const BREADTH_HOSTS = [
   'https://push2.eastmoney.com',
   'https://push2delay.eastmoney.com',
@@ -102,7 +102,7 @@ export async function fetchMarketBreadth(): Promise<MarketBreadth> {
   for (const base of BREADTH_HOSTS) {
     try {
       const url =
-        `${base}/api/qt/ulist.np/get?fltt=2&secids=1.000001,0.399001&fields=f104,f105,f106`;
+        `${base}/api/qt/ulist.np/get?fltt=2&secids=1.000001,0.399001,0.899050&fields=f104,f105,f106`;
       const res = await fetchWithTimeout(url);
       if (!res.ok) {
         throw new Error(`涨跌家数接口返回 ${res.status}`);

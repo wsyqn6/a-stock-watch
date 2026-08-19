@@ -416,6 +416,17 @@ describe('parseBreadthResponse', () => {
     expect(b).toEqual({ up: 1100, down: 4091, flat: 92 });
   });
 
+  it('sums 沪深京 three markets', () => {
+    const b = parseBreadthResponse(
+      emJSON([
+        { f104: 324, f105: 2004, f106: 26 },
+        { f104: 233, f105: 2680, f106: 15 },
+        { f104: 34, f105: 303, f106: 0 },
+      ]),
+    );
+    expect(b).toEqual({ up: 591, down: 4987, flat: 41 });
+  });
+
   it('treats missing or malformed counts as zero', () => {
     const b = parseBreadthResponse(
       emJSON([{ f104: 100, f106: 5 }, { f105: '30' }, null]),

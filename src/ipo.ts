@@ -62,6 +62,12 @@ function toFinitePos(v: unknown): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+/** 股 → 万股（东财 ONLINE_APPLY_UPPER 单位为股，展示用万股）。 */
+function toWanShares(v: unknown): number | undefined {
+  const n = toFinitePos(v);
+  return n === undefined ? undefined : n / 10_000;
+}
+
 function dateOnly(v: unknown): string {
   return typeof v === 'string' ? v.slice(0, 10) : '';
 }
@@ -82,7 +88,7 @@ export function parseStockApplies(rows: Record<string, unknown>[]): NewStockAppl
     applyDate: dateOnly(r.APPLY_DATE),
     issuePrice: toFinitePos(r.ISSUE_PRICE) ?? toFinitePos(r.PREDICT_ISSUE_PRICE),
     topMcapWan: toFinitePos(r.TOP_APPLY_MARKETCAP),
-    applyUpperWan: toFinitePos(r.ONLINE_APPLY_UPPER),
+    applyUpperWan: toWanShares(r.ONLINE_APPLY_UPPER),
   }));
 }
 

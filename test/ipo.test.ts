@@ -59,7 +59,7 @@ describe('parseStockApplies', () => {
       applyDate: '2026-08-21',
       issuePrice: 15.5,
       topMcapWan: 29.5,
-      applyUpperWan: 29500,
+      applyUpperWan: 2.95,
     });
     expect(list[1].issuePrice).toBe(61.36);
   });

@@ -60,7 +60,7 @@ const INDEX_SHORT_NAMES: Record<string, string> = {
 };
 
 const MINUTE_INTERVAL_MS = 60_000;
-const BREADTH_INTERVAL_MS = 60_000;
+const BREADTH_INTERVAL_MS = 15_000;
 
 const WEBVIEW_CSS = `
 :root{--up:#E15241;--down:#2EA46E}
