@@ -57,10 +57,14 @@ export class StatusBarController implements QuoteSink, vscode.Disposable {
     return this.manager.refresh();
   }
 
+  private sig = '';
   private reconcile(symbols: string[]): void {
+    const sig = symbols.join(',');
+    const rebuild = sig !== this.sig;
+    this.sig = sig;
     const wanted = new Set(symbols);
     for (const [sym, pair] of this.pairs) {
-      if (!wanted.has(sym)) {
+      if (!wanted.has(sym) || rebuild) {
         pair.name.dispose();
         pair.pct.dispose();
         this.pairs.delete(sym);
@@ -133,7 +137,8 @@ function createItem(priority: number): vscode.StatusBarItem {
 }
 
 function fmtPct(pct: number): string {
-  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct.toFixed(2)}%`;
 }
 
 function tooltip(q: StockQuote): string {

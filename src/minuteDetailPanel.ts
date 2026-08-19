@@ -382,6 +382,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   const fmtAmt=function(v){ if(v>=1e12) return (v/1e12).toFixed(2)+'万亿'; if(v>=1e8) return (v/1e8).toFixed(2)+'亿'; if(v>=1e4) return (v/1e4).toFixed(2)+'万'; return Math.round(v); };
   const cls=function(p,c){ return p>c?'up':p<c?'down':'flat'; };
   const sign=function(n){ return n>=0?'+':''; };
+  const esc=function(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));};
   const hm=function(t){ return t.slice(0,2)+':'+t.slice(2); };
   const TABS=['分时','日K','周K','月K'];
   let last=null;
@@ -405,7 +406,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   let lastTab=null;
   let lastChartKey=null;
   const headInner=function(m,pxCls,price,change,changePct){
-    return '<span class="nm">'+m.name+'</span><span class="cd">'+m.code+'</span>'+
+    return '<span class="nm">'+esc(m.name)+'</span><span class="cd">'+esc(m.code)+'</span>'+
       '<span class="px '+pxCls+'">'+price.toFixed(2)+'</span>'+
       '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span>';
   };

@@ -578,6 +578,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   const TOP_SVG='<svg viewBox="0 0 16 16" width="13" height="13"><path d="M9.6 1.4l5 5-1 1-1.4-1.4-1.9 1.9.9 2.1-2.8 2.8-2.6-2.6L4 14l-2-2 3.8-2.8-2.6-2.6 2.8-2.8 2.1.9 1.9-1.9-1.4-1.4z" fill="currentColor"/></svg>';
   const REFRESH_SVG='<svg viewBox="0 0 16 16" width="12" height="12"><path d="M13.65 2.35A6.96 6.96 0 0 0 8.5 1a6.5 6.5 0 1 0 6.34 8.5h-1.7A5 5 0 1 1 8.5 3c1.4 0 2.68.55 3.62 1.47L9.5 7h5V2l-.85.85z" fill="currentColor"/></svg>';
   api.postMessage({type:'ready'});
+  function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   let editing=false;
   let cur=[];
   let lastMkSig='';
@@ -658,9 +659,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if(e.key==='Enter'||e.key===' '){e.preventDefault();setIpoCollapsed(!ipoCollapsed);}
   });
   function ipoRowHtml(it){
-    const board=it.board?'<span class="board">'+it.board+'</span>':'';
-    return '<div class="row"><div class="left"><span class="name">'+it.name+'</span><span class="codeline"><span class="code">'+it.code+'</span>'+board+'</span></div>'+
-      '<span class="fill"></span><div class="right"><span class="price">'+it.price+'</span><span class="tag">'+it.tag+'</span></div></div>';
+    const board=it.board?'<span class="board">'+esc(it.board)+'</span>':'';
+    return '<div class="row"><div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+board+'</span></div>'+
+      '<span class="fill"></span><div class="right"><span class="price">'+esc(it.price)+'</span><span class="tag">'+esc(it.tag)+'</span></div></div>';
   }
   function ipoDayHtml(d){
     const isToday=d.label.indexOf('今日')===0;
@@ -678,7 +679,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   function renderIpo(m){
     ipoEl.style.display=m.show?'':'none';
     if(!m.show)return;
-    if(m.error){ipoBody.innerHTML='<div class="warn">'+m.error+'</div>';ipoCount.textContent='';return;}
+    if(m.error){ipoBody.innerHTML='<div class="warn">'+esc(m.error)+'</div>';ipoCount.textContent='';return;}
     const days=m.days||[];
     if(days.length===0){
       ipoBody.innerHTML='<div class="msg">未来 3 个交易日暂无新股/新债申购</div>';
@@ -703,7 +704,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if(m.type!=='quotes')return;
     document.body.classList.toggle('boss',!!m.boss);
     renderMarket(m.market);
-    if(m.error){app.innerHTML='<div class="msg">'+m.error+'</div>';return;}
+    if(m.error){app.innerHTML='<div class="msg">'+esc(m.error)+'</div>';return;}
     if(!m.items||!m.items.length){cur=[];app.innerHTML='<div class="lhead">自选股<span class="cnt">0</span></div><div class="msg">暂无自选股，点击 + 添加</div>';return;}
     render(m.items,m.warn);
   });
@@ -712,12 +713,12 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if(curSig!==sig){
       curSig=sig;
       closeMenu();
-      const banner=warn?'<div class="warn">'+warn+'</div>':'';
+      const banner=warn?'<div class="warn">'+esc(warn)+'</div>':'';
       app.innerHTML=banner+'<div class="lhead">自选股<span class="cnt">'+items.length+'</span></div>'+items.map((it,i)=>{
         const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
         const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
         const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
-        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+it.name+'</span><span class="codeline"><span class="code">'+it.code+'</span>'+(it.board?'<span class="board">'+it.board+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
+        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+(it.board?'<span class="board">'+esc(it.board)+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
       }).join('');
       fitNames();
       bind();
@@ -841,6 +842,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   });
   window.addEventListener('mousedown',e=>{ if(menu&&!menu.contains(e.target))closeMenu(); });
   window.addEventListener('keydown',e=>{ if(e.key==='Escape')closeMenu(); });
+  window.addEventListener('blur',closeMenu);
+  window.addEventListener('scroll',closeMenu,true);
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden)closeMenu(); });
 })();
 </script>
 </body>
