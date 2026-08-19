@@ -106,8 +106,8 @@ export function parseTelegraphResponse(text: string): TelegraphItem[] {
   return items;
 }
 
-export async function fetchTelegraph(lastTimeSec?: number): Promise<TelegraphItem[]> {
-  const query = buildTelegraphQuery(lastTimeSec ?? Math.floor(Date.now() / 1000));
+async function getRoll(lastTimeSec: number, rn: number): Promise<TelegraphItem[]> {
+  const query = buildTelegraphQuery(lastTimeSec, rn);
   const res = await fetchWithTimeout(`${API_URL}?${query.toString()}`, 10_000, {
     headers: { Referer: 'https://www.cls.cn/telegraph' },
   });
@@ -117,16 +117,13 @@ export async function fetchTelegraph(lastTimeSec?: number): Promise<TelegraphIte
   return parseTelegraphResponse(await res.text());
 }
 
+export function fetchTelegraph(): Promise<TelegraphItem[]> {
+  return getRoll(Math.floor(Date.now() / 1000), 30);
+}
+
 /** 取游标时间之前的历史电报（用于下拉加载更多）。 */
-export async function fetchTelegraphBefore(lastTimeSec: number, rn = 20): Promise<TelegraphItem[]> {
-  const query = buildTelegraphQuery(lastTimeSec, rn);
-  const res = await fetchWithTimeout(`${API_URL}?${query.toString()}`, 10_000, {
-    headers: { Referer: 'https://www.cls.cn/telegraph' },
-  });
-  if (!res.ok) {
-    throw new Error(`电报接口返回 ${res.status}`);
-  }
-  return parseTelegraphResponse(await res.text());
+export function fetchTelegraphBefore(lastTimeSec: number, rn = 20): Promise<TelegraphItem[]> {
+  return getRoll(lastTimeSec, rn);
 }
 
 export interface TelegraphDisplayItem {

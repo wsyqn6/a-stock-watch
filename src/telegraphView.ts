@@ -135,6 +135,8 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
       }
       merged.sort((a, b) => b.ctime - a.ctime);
       this.items = merged.slice(0, MAX_ITEMS);
+      // 列表未触顶说明仍有空间容纳历史，重新开放下拉加载；触顶(200)则维持现状避免空取
+      this.hasMore = this.items.length < MAX_ITEMS ? true : this.hasMore;
       this.error = null;
     } catch (err) {
       // 保留旧数据，下次刷新重试
@@ -200,15 +202,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     const prevIds = new Set(this.items.map((i) => i.id));
     try {
       const fetched = await fetchTelegraphBefore(cursor, HISTORY_RN);
-      const seen = new Set(this.items.map((i) => i.id));
-      const older: TelegraphItem[] = [];
-      for (const it of fetched) {
-        if (seen.has(it.id)) {
-          continue;
-        }
-        seen.add(it.id);
-        older.push(it);
-      }
+      const older = fetched.filter((it) => !prevIds.has(it.id));
       if (older.length === 0) {
         this.hasMore = false;
       } else {
@@ -243,7 +237,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
   const api=acquireVsCodeApi();
   api.postMessage({type:'ready'});
   function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-  let hasMore=true, loadingMore=false;
+  let hasMore=true, loadingMore=false, pending=null;
   function rowHtml(it){
     const cls=(it.badge?' imp':'')+(it.level==='A'?' lvl-a':it.level==='B'?' lvl-b':'');
     const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
@@ -261,7 +255,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     if(!f){f=document.createElement('div');f.className='foot';root.appendChild(f);}
     f.textContent=loadingMore?'加载中…':(hasMore?'':'没有更多了');
   }
-  function render(m){
+  function applyData(m){
     loadingMore=false;
     if(m.error){root.innerHTML='<div class="warn">'+esc(m.error)+'</div>';return;}
     const items=m.items||[];
@@ -269,6 +263,12 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     hasMore=m.hasMore!==false;
     root.innerHTML=items.map(rowHtml).join('')+'<div class="foot"></div>';
     foot();
+  }
+  function render(m){
+    // 用户已下翻查看历史时，暂缓整列重建以免跳回顶部；回顶后再应用最新数据
+    if(window.scrollY>40){pending=m;return;}
+    pending=null;
+    applyData(m);
   }
   function appendMore(m){
     loadingMore=false;
@@ -281,13 +281,20 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     }
     foot();
   }
+  let ticking=false;
   function onScroll(){
-    if(loadingMore||!hasMore)return;
-    if(window.innerHeight+window.scrollY>=document.body.offsetHeight-40){
-      loadingMore=true;foot();api.postMessage({type:'loadMore'});
-    }
+    if(ticking)return;
+    ticking=true;
+    requestAnimationFrame(function(){
+      ticking=false;
+      if(pending&&window.scrollY<=40){const p=pending;pending=null;applyData(p);}
+      if(loadingMore||!hasMore)return;
+      if(window.innerHeight+window.scrollY>=document.body.offsetHeight-40){
+        loadingMore=true;foot();api.postMessage({type:'loadMore'});
+      }
+    });
   }
-  window.addEventListener('scroll',onScroll);
+  window.addEventListener('scroll',onScroll,{passive:true});
   window.addEventListener('message',e=>{const m=e.data;if(!m)return;if(m.type==='data')render(m);else if(m.type==='more')appendMore(m);});
 })();
 </script>
