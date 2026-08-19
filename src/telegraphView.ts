@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   fetchTelegraph,
+  fetchTelegraphBefore,
   fmtPct,
   fmtReading,
   pctSign,
@@ -19,22 +20,28 @@ interface DisplayItem {
   time: string;
   text: string;
   badge: string;
+  level: string;
   reading: string;
   stocks: DisplayStock[];
 }
 
 const DEFAULT_INTERVAL_SEC = 30;
-const MAX_ITEMS = 100;
+const HISTORY_RN = 20;
+const MAX_ITEMS = 200;
 
 const CSS = `
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:0 4px 8px}
-.row{padding:6px 8px;border-bottom:1px solid var(--vscode-panel-border)}
+.row{position:relative;padding:6px 8px 6px 11px;border-bottom:1px solid var(--vscode-panel-border)}
 .row:hover{background:var(--vscode-list-hoverBackground)}
+.row.imp::before{content:'';position:absolute;left:0;top:7px;height:13px;width:3px;background:var(--imp-color,#d0372d);border-radius:0 1px 1px 0}
+.row.lvl-a{--imp-color:#d0372d}
+.row.lvl-b{--imp-color:#ed9a2e}
 .meta{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:2px}
 .meta .time{font-variant-numeric:tabular-nums;flex:0 0 auto}
 .meta .reading{margin-left:auto;flex:0 0 auto;font-variant-numeric:tabular-nums}
-.badge{flex:0 0 auto;font-size:10px;font-weight:700;line-height:1.2;padding:1px 4px;border-radius:2px;color:#fff;background:#d0372d}
+.badge{flex:0 0 auto;font-size:10px;font-weight:700;line-height:1.2;padding:1px 4px;border-radius:2px;color:#fff;background:var(--imp-color,#d0372d)}
+.row.lvl-b .badge{color:#ed9a2e;background:rgba(237,154,46,.16)}
 .row.imp .text{font-weight:600}
 .text{line-height:1.45;word-break:break-word}
 .stocks{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
@@ -43,6 +50,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .chip.down{color:#089981;border-color:rgba(8,153,129,.35);background:rgba(8,153,129,.08)}
 .chip.flat{color:var(--vscode-descriptionForeground);border-color:var(--vscode-panel-border)}
 .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
+.foot{padding:10px 8px;color:var(--vscode-descriptionForeground);font-size:11px;text-align:center}
 .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
 `;
 
@@ -51,6 +59,8 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
   private view?: vscode.WebviewView;
   private timer: NodeJS.Timeout | null = null;
   private loading = false;
+  private loadingMore = false;
+  private hasMore = true;
   private items: TelegraphItem[] = [];
   private error: string | null = null;
 
@@ -63,8 +73,14 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = this.html();
     webviewView.webview.onDidReceiveMessage((msg) => {
-      if (msg && typeof msg === 'object' && (msg as { type?: unknown }).type === 'ready') {
+      if (!msg || typeof msg !== 'object') {
+        return;
+      }
+      const type = (msg as { type?: unknown }).type;
+      if (type === 'ready') {
         this.push();
+      } else if (type === 'loadMore') {
+        void this.loadMore();
       }
     });
     webviewView.onDidChangeVisibility(() => {
@@ -137,18 +153,32 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     }
     void this.view.webview.postMessage({
       type: 'data',
-      items: this.toDisplay(),
+      items: this.toDisplayItems(this.items),
+      hasMore: this.hasMore,
       error: this.error,
     });
   }
 
+  /** 仅把增量（更旧的历史）追加推给 webview，不重建整列表，避免滚动跳顶。 */
+  private pushMore(items: TelegraphItem[]): void {
+    if (!this.view || !this.view.visible) {
+      return;
+    }
+    void this.view.webview.postMessage({
+      type: 'more',
+      items: this.toDisplayItems(items),
+      hasMore: this.hasMore,
+    });
+  }
+
   /** host 侧算好展示字符串，webview 只做转义渲染。 */
-  private toDisplay(): DisplayItem[] {
-    return this.items.map((it): DisplayItem => {
+  private toDisplayItems(items: TelegraphItem[]): DisplayItem[] {
+    return items.map((it): DisplayItem => {
       const row = toTelegraphDisplayItem(it);
       return {
         time: row.time,
         text: row.text,
+        level: row.level,
         badge: row.level === 'A' ? '重磅' : row.level === 'B' ? '重要' : '',
         reading: row.reading > 0 ? fmtReading(row.reading) : '',
         stocks: row.stocks.map((s) => ({
@@ -158,6 +188,42 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
         })),
       };
     });
+  }
+
+  /** 下拉加载更早的历史电报。游标取当前列表最旧一条的 ctime。 */
+  private async loadMore(): Promise<void> {
+    if (this.loadingMore || !this.hasMore || this.items.length === 0) {
+      return;
+    }
+    this.loadingMore = true;
+    const cursor = Math.floor(Math.min(...this.items.map((i) => i.ctime)) / 1000);
+    const prevIds = new Set(this.items.map((i) => i.id));
+    try {
+      const fetched = await fetchTelegraphBefore(cursor, HISTORY_RN);
+      const seen = new Set(this.items.map((i) => i.id));
+      const older: TelegraphItem[] = [];
+      for (const it of fetched) {
+        if (seen.has(it.id)) {
+          continue;
+        }
+        seen.add(it.id);
+        older.push(it);
+      }
+      if (older.length === 0) {
+        this.hasMore = false;
+      } else {
+        this.items = [...this.items, ...older]
+          .sort((a, b) => b.ctime - a.ctime)
+          .slice(0, MAX_ITEMS);
+      }
+      const delta = this.items.filter((i) => !prevIds.has(i.id));
+      this.pushMore(delta);
+    } catch {
+      // 保留现有数据，允许下次重试；仅清除 loading 态
+      this.pushMore([]);
+    } finally {
+      this.loadingMore = false;
+    }
   }
 
   private html(): string {
@@ -177,23 +243,52 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
   const api=acquireVsCodeApi();
   api.postMessage({type:'ready'});
   function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  let hasMore=true, loadingMore=false;
+  function rowHtml(it){
+    const cls=(it.badge?' imp':'')+(it.level==='A'?' lvl-a':it.level==='B'?' lvl-b':'');
+    const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
+      (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
+      (it.reading?'<span class="reading">'+esc(it.reading)+'</span>':'')+'</div>';
+    const chips=it.stocks.map(function(s){
+      return '<span class="chip '+s.sign+'">'+esc(s.name)+(s.pct?' '+s.pct:'')+'</span>';
+    }).join('');
+    return '<div class="row'+cls+'">'+meta+
+      '<div class="text">'+esc(it.text)+'</div>'+
+      (chips?'<div class="stocks">'+chips+'</div>':'')+'</div>';
+  }
+  function foot(){
+    let f=root.querySelector('.foot');
+    if(!f){f=document.createElement('div');f.className='foot';root.appendChild(f);}
+    f.textContent=loadingMore?'加载中…':(hasMore?'':'没有更多了');
+  }
   function render(m){
+    loadingMore=false;
     if(m.error){root.innerHTML='<div class="warn">'+esc(m.error)+'</div>';return;}
     const items=m.items||[];
     if(items.length===0){root.innerHTML='<div class="msg">暂无电报</div>';return;}
-    root.innerHTML=items.map(function(it){
-      const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
-        (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
-        (it.reading?'<span class="reading">'+esc(it.reading)+'</span>':'')+'</div>';
-      const chips=it.stocks.map(function(s){
-        return '<span class="chip '+s.sign+'">'+esc(s.name)+(s.pct?' '+s.pct:'')+'</span>';
-      }).join('');
-      return '<div class="row'+(it.badge?' imp':'')+'">'+meta+
-        '<div class="text">'+esc(it.text)+'</div>'+
-        (chips?'<div class="stocks">'+chips+'</div>':'')+'</div>';
-    }).join('');
+    hasMore=m.hasMore!==false;
+    root.innerHTML=items.map(rowHtml).join('')+'<div class="foot"></div>';
+    foot();
   }
-  window.addEventListener('message',e=>{const m=e.data;if(m&&m.type==='data')render(m);});
+  function appendMore(m){
+    loadingMore=false;
+    hasMore=m.hasMore!==false;
+    const items=m.items||[];
+    if(items.length){
+      const f=root.querySelector('.foot');
+      if(f){f.insertAdjacentHTML('beforebegin',items.map(rowHtml).join(''));}
+      else{root.insertAdjacentHTML('beforeend',items.map(rowHtml).join(''));}
+    }
+    foot();
+  }
+  function onScroll(){
+    if(loadingMore||!hasMore)return;
+    if(window.innerHeight+window.scrollY>=document.body.offsetHeight-40){
+      loadingMore=true;foot();api.postMessage({type:'loadMore'});
+    }
+  }
+  window.addEventListener('scroll',onScroll);
+  window.addEventListener('message',e=>{const m=e.data;if(!m)return;if(m.type==='data')render(m);else if(m.type==='more')appendMore(m);});
 })();
 </script>
 </body>
