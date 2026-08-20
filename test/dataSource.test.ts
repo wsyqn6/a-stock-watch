@@ -45,16 +45,23 @@ describe('parseTencentResponse', () => {
   });
 
   it('parses valuation metrics: turnover, PE, PB and market caps', () => {
-    const f = Array(47).fill('0');
+    const f = Array(52).fill('0');
     f[1] = 'A'; f[2] = 'sh600519'; f[3] = '10.00'; f[4] = '10.00';
+    f[7] = '1200'; f[8] = '800';
     f[30] = '20260805150000';
     f[31] = '0.00'; f[32] = '0.00';
     f[33] = '10.20'; f[34] = '9.90';
+    f[37] = '2000.0'; // 成交额（万）
     f[38] = '1.23';   // 换手率 %
     f[39] = '25.6';   // 市盈率 TTM
+    f[43] = '3.01';   // 振幅 %
     f[44] = '1250.0'; // 流通市值（亿）
     f[45] = '1300.0'; // 总市值（亿）
     f[46] = '4.56';   // 市净率
+    f[47] = '11.00';  // 涨停价
+    f[48] = '9.00';   // 跌停价
+    f[49] = '1.52';   // 量比
+    f[51] = '10.12';  // 均价
     const q = parseTencentResponse('v_sh600519="' + f.join('~') + '";');
     expect(q).toHaveLength(1);
     const it0 = q[0];
@@ -63,6 +70,14 @@ describe('parseTencentResponse', () => {
     expect(it0.pb).toBeCloseTo(4.56, 5);
     expect(it0.circMcap).toBeCloseTo(1250.0 * 1e8, 0);
     expect(it0.totalMcap).toBeCloseTo(1300.0 * 1e8, 0);
+    expect(it0.amount).toBeCloseTo(2000.0 * 1e4, 0);
+    expect(it0.amplitude).toBeCloseTo(3.01, 5);
+    expect(it0.limitUp).toBeCloseTo(11.0, 5);
+    expect(it0.limitDown).toBeCloseTo(9.0, 5);
+    expect(it0.volRatio).toBeCloseTo(1.52, 5);
+    expect(it0.avgPrice).toBeCloseTo(10.12, 5);
+    expect(it0.outerVol).toBe(1200);
+    expect(it0.innerVol).toBe(800);
   });
 
   it('leaves valuation metrics undefined when absent or zero', () => {
@@ -90,6 +105,14 @@ describe('parseTencentResponse', () => {
     expect(qz[0].pb).toBeUndefined();
     expect(qz[0].circMcap).toBeUndefined();
     expect(qz[0].totalMcap).toBeUndefined();
+    expect(qz[0].amount).toBeUndefined();
+    expect(qz[0].amplitude).toBeUndefined();
+    expect(qz[0].limitUp).toBeUndefined();
+    expect(qz[0].limitDown).toBeUndefined();
+    expect(qz[0].volRatio).toBeUndefined();
+    expect(qz[0].avgPrice).toBeUndefined();
+    expect(qz[0].outerVol).toBeUndefined();
+    expect(qz[0].innerVol).toBeUndefined();
   });
 
   it('ignores malformed lines', () => {

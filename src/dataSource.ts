@@ -173,6 +173,22 @@ export interface StockQuote {
   circMcap?: number;
   /** 总市值（元） */
   totalMcap?: number;
+  /** 成交额（元） */
+  amount?: number;
+  /** 振幅 % */
+  amplitude?: number;
+  /** 涨停价 */
+  limitUp?: number;
+  /** 跌停价 */
+  limitDown?: number;
+  /** 量比 */
+  volRatio?: number;
+  /** 均价 */
+  avgPrice?: number;
+  /** 外盘（手） */
+  outerVol?: number;
+  /** 内盘（手） */
+  innerVol?: number;
 }
 
 const TENCENT_URL = 'https://qt.gtimg.cn/q=';
@@ -183,16 +199,24 @@ const F = {
   price: 3,
   prevClose: 4,
   open: 5,
+  outerVol: 7,
+  innerVol: 8,
   date: 30,
   change: 31,
   changePct: 32,
   high: 33,
   low: 34,
+  amountYi: 37,
   turnover: 38,
   pe: 39,
+  amplitude: 43,
   circMcapYi: 44,
   totalMcapYi: 45,
   pb: 46,
+  limitUp: 47,
+  limitDown: 48,
+  volRatio: 49,
+  avgPrice: 51,
 };
 const MIN_FIELDS = F.high; // 至少含到最高价字段（索引33）即可解析，high/low 可能缺失
 
@@ -244,6 +268,7 @@ export function parseTencentResponse(text: string): StockQuote[] {
     const date = /^\d{8}/.exec(fields[F.date])?.[0] ?? '';
     const circMcapYi = toFinitePos(fields[F.circMcapYi]);
     const totalMcapYi = toFinitePos(fields[F.totalMcapYi]);
+    const amountYi = toFinitePos(fields[F.amountYi]);
     quotes.push({
       symbol,
       name,
@@ -261,6 +286,14 @@ export function parseTencentResponse(text: string): StockQuote[] {
       pb: toFinitePos(fields[F.pb]),
       circMcap: circMcapYi !== undefined ? circMcapYi * 1e8 : undefined,
       totalMcap: totalMcapYi !== undefined ? totalMcapYi * 1e8 : undefined,
+      amount: amountYi !== undefined ? amountYi * 1e4 : undefined,
+      amplitude: toFinitePos(fields[F.amplitude]),
+      limitUp: toFinitePos(fields[F.limitUp]),
+      limitDown: toFinitePos(fields[F.limitDown]),
+      volRatio: toFinitePos(fields[F.volRatio]),
+      avgPrice: toFinitePos(fields[F.avgPrice]),
+      outerVol: toFinitePos(fields[F.outerVol]),
+      innerVol: toFinitePos(fields[F.innerVol]),
     });
   }
   return quotes;
