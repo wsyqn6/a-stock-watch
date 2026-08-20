@@ -429,9 +429,10 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   });
   let lastTab=null;
   let lastChartKey=null;
+  const arrow=function(t){ return t==='up'?'▲':t==='down'?'▼':'▬'; };
   const headInner=function(m,pxCls,price,change,changePct){
     return '<span class="nm">'+esc(m.name)+'</span><span class="cd">'+esc(m.code)+'</span>'+
-      '<span class="px '+pxCls+'">'+price.toFixed(2)+'</span>'+
+      '<span class="px '+pxCls+'">'+arrow(m.trend)+' '+price.toFixed(2)+'</span>'+
       '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span>';
   };
   const row1Inner=function(m,prevClose){
