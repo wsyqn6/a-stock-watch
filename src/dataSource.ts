@@ -457,6 +457,9 @@ export interface MinuteChartLayout {
   pts: { x: number; y: number; ay: number | null; price: number; avg: number | null; volume: number; time: string }[];
   lastPrice: number;
   lastAvg: number | null;
+  /** 涨停/跌停线 y 坐标（价格在当日范围内时提供，否则 undefined） */
+  limitUpY?: number;
+  limitDownY?: number;
 }
 
 const CHART_W = 640;
@@ -497,7 +500,11 @@ function buildChartScale(lo: number, hi: number, reversed: boolean): ChartScale 
   return { yMin, yMax, y, yTicks };
 }
 
-export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteChartLayout | null {
+export function buildMinuteChart(
+  data: MinuteData,
+  prevClose: number,
+  limits?: { limitUp?: number; limitDown?: number },
+): MinuteChartLayout | null {
   const series = buildMinuteSeries(data);
   if (series.length < 2) {
     return null;
@@ -520,6 +527,15 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
       hi = Math.max(hi, p.avg);
     }
   }
+  // 涨跌停价仅在贴近当日价格区间时纳入坐标范围，避免异常值或指数（无涨跌停）拉爆图表。
+  // 阈值取 25% 价格幅，覆盖主板 10% / 创业板科创板 20% 涨跌停。
+  const span = Math.max(hi - lo, prevClose * 0.25, 1e-6);
+  const limitUp = limits?.limitUp;
+  const limitDown = limits?.limitDown;
+  const limitUpIn = limitUp !== undefined && limitUp >= lo - span && limitUp <= hi + span;
+  const limitDownIn = limitDown !== undefined && limitDown >= lo - span && limitDown <= hi + span;
+  if (limitUpIn) hi = Math.max(hi, limitUp as number);
+  if (limitDownIn) lo = Math.min(lo, limitDown as number);
   const { y, yTicks } = buildChartScale(lo, hi, false);
   const priceLine = series
     .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.price).toFixed(1)}`)
@@ -572,6 +588,8 @@ export function buildMinuteChart(data: MinuteData, prevClose: number): MinuteCha
     pts,
     lastPrice: last.price,
     lastAvg: avgUsable ? last.avg : null,
+    limitUpY: limitUpIn ? y(limitUp as number) : undefined,
+    limitDownY: limitDownIn ? y(limitDown as number) : undefined,
   };
 }
 

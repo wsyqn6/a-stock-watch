@@ -419,6 +419,25 @@ describe('minute series & chart', () => {
     expect(maxBar).toBeCloseTo(c.volH - 2, 1);
   });
 
+  it('includes limit up/down in the y range when near the price band', () => {
+    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0, {
+      limitUp: 11.0,
+      limitDown: 9.0,
+    })!;
+    expect(c.limitUpY).not.toBeUndefined();
+    expect(c.limitDownY).not.toBeUndefined();
+    expect(c.limitUpY!).toBeLessThan(c.limitDownY!);
+  });
+
+  it('drops limit up/down when far from the price band', () => {
+    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0, {
+      limitUp: 50.0,
+      limitDown: 0.1,
+    })!;
+    expect(c.limitUpY).toBeUndefined();
+    expect(c.limitDownY).toBeUndefined();
+  });
+
   it('returns null for series with no volume data', () => {
     const d = parseMinuteResponse(minuteJSON(['0930 10.00', '0931 10.10']), SYM);
     expect(buildMinuteChart(d, 10)).toBeNull();

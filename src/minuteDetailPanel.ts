@@ -193,7 +193,10 @@ export class MinuteDetailPanel {
       const { data } = await getMinuteCached(this.symbol);
       const fp = `${data.date}|${data.points.length}|${q.prevClose}`;
       if (fp !== this.layoutFp) {
-        const layout = buildMinuteChart(data, q.prevClose);
+        const layout = buildMinuteChart(data, q.prevClose, {
+          limitUp: q.limitUp,
+          limitDown: q.limitDown,
+        });
         this.layout = layout;
         this.error = layout ? null : '分时数据缺失';
         this.layoutFp = fp;
@@ -271,6 +274,14 @@ export class MinuteDetailPanel {
       pb: q?.pb,
       circMcap: q?.circMcap,
       totalMcap: q?.totalMcap,
+      amount: q?.amount,
+      amplitude: q?.amplitude,
+      limitUp: q?.limitUp,
+      limitDown: q?.limitDown,
+      volRatio: q?.volRatio,
+      avgPrice: q?.avgPrice,
+      outerVol: q?.outerVol,
+      innerVol: q?.innerVol,
       layout: this.layout,
       klineLayouts: Object.fromEntries(this.klineLayouts),
       volTotal: this.volTotal,
@@ -333,6 +344,12 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .chart{display:block;width:100%;height:auto;cursor:crosshair}
 .chart line.grid{stroke:var(--vscode-editorWidget-border);stroke-width:1;opacity:.6;vector-effect:non-scaling-stroke}
 .chart line.base{stroke:var(--vscode-descriptionForeground);stroke-width:1.5;stroke-dasharray:4 3;opacity:.75;vector-effect:non-scaling-stroke}
+.chart line.lim{stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke;opacity:.55}
+.chart line.limUp{stroke:var(--up)}
+.chart line.limDown{stroke:var(--down)}
+.chart text.limUp{fill:var(--up);opacity:.85}
+.chart text.limDown{fill:var(--down);opacity:.85}
+.chart text.avgEnd{fill:var(--avg);font-size:10px}
 .chart polyline.avg{fill:none;stroke:var(--avg);stroke-width:1.4;vector-effect:non-scaling-stroke}
 .chart polyline.price{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;transition:stroke-width .12s ease}
 .chart-wrap:hover polyline.price{stroke-width:2}
@@ -418,9 +435,18 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   };
   const row2Inner=function(m,vol){
     const r=state.tab==='分时'
-      ?[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null]]
+      ?[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['振幅',m.amplitude!=null?m.amplitude.toFixed(2)+'%':null]]
       :[['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null],['市净率',m.pb!=null?m.pb.toFixed(2):null],['总市值',m.totalMcap!=null?fmtAmt(m.totalMcap):null]];
     return r.map(a=>'<span>'+a[0]+' <b>'+(a[1]!=null?a[1]:'—')+'</b></span>').join('');
+  };
+  const footInner=function(m){
+    const parts=[];
+    if(m.circMcap!=null) parts.push('流通 '+fmtAmt(m.circMcap));
+    if(m.volRatio!=null) parts.push('量比 '+m.volRatio.toFixed(2));
+    if(m.avgPrice!=null) parts.push('均价 '+m.avgPrice.toFixed(2));
+    if(m.limitUp!=null) parts.push('涨停 '+m.limitUp.toFixed(2));
+    if(m.limitDown!=null) parts.push('跌停 '+m.limitDown.toFixed(2));
+    return '<span>分时 '+(m.minuteDate||'—')+'</span><span>'+parts.join(' · ')+'</span>';
   };
   function updateText(m){
     const price=m.price==null?0:m.price;
@@ -434,6 +460,8 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     if(row1) row1.innerHTML=row1Inner(m,prevClose);
     const row2=document.getElementById('row2');
     if(row2) row2.innerHTML=row2Inner(m,m.volTotal);
+    const foot=document.getElementById('foot');
+    if(foot) foot.innerHTML=footInner(m);
   }
   function render(m){
     try {
@@ -460,7 +488,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       const row2='<div class="stats" id="row2">'+row2Inner(m,vol)+'</div>';
       const tabs='<div class="tabs">'+TABS.map(t=>'<button data-tab="'+t+'" class="'+(t===state.tab?'on':'')+'">'+t+'</button>').join('')+'</div>';
       const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
-      app.innerHTML=head+row1+row2+tabs+body;
+      app.innerHTML=head+row1+row2+tabs+body+'<div class="foot" id="foot">'+footInner(m)+'</div>';
       bindTabs();
       if(state.tab==='分时') bindChart(m);
       else bindKline(state.tab);
@@ -499,15 +527,19 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
     const pxCls=cls(L.lastPrice,m.prevClose);
     const avgEl=L.avgLine?('<polyline class="avg" points="'+L.avgLine+'"></polyline>'):'';
     const lastPt=L.pts[L.pts.length-1];
+    const limitUpEl=L.limitUpY!=null&&m.limitUp!=null?('<line class="lim limUp" x1="0" y1="'+L.limitUpY.toFixed(1)+'" x2="'+(W-AXIS_R)+'" y2="'+L.limitUpY.toFixed(1)+'"></line><text class="limUp" x="0" y="'+(L.limitUpY-3).toFixed(1)+'">涨停 '+m.limitUp.toFixed(2)+'</text>'):'';
+    const limitDownEl=L.limitDownY!=null&&m.limitDown!=null?('<line class="lim limDown" x1="0" y1="'+L.limitDownY.toFixed(1)+'" x2="'+(W-AXIS_R)+'" y2="'+L.limitDownY.toFixed(1)+'"></line><text class="limDown" x="0" y="'+(L.limitDownY-3).toFixed(1)+'">跌停 '+m.limitDown.toFixed(2)+'</text>'):'';
+    const avgEndEl=L.avgLine&&lastPt.ay!=null?('<text class="avgEnd" x="'+(W-AXIS_R)+'" y="'+(lastPt.ay-4).toFixed(1)+'" text-anchor="end">均价 '+(L.lastAvg!=null?L.lastAvg.toFixed(2):'')+'</text>'):'';
     return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridV+gridH+yLab+
       '<g id="vol">'+bars+'</g>'+
       '<line class="base" x1="0" y1="'+L.baseY+'" x2="'+(W-AXIS_R)+'" y2="'+L.baseY+'"></line>'+
       '<text x="0" y="'+(L.baseY-4)+'">昨收 '+m.prevClose.toFixed(2)+'</text>'+
+      limitUpEl+limitDownEl+
       '<polyline class="price '+pxCls+'" points="'+L.priceLine+'"></polyline>'+
       '<circle class="end '+pxCls+'" cx="'+lastPt.x.toFixed(1)+'" cy="'+lastPt.y.toFixed(1)+'" r="3"></circle>'+
-      avgEl+
+      avgEl+avgEndEl+
       '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+(W-AXIS_R)+'"></line><circle id="cp" class="p" r="3.5"></circle><circle id="ca" class="a" r="3"></circle></g>'+
       xLab+
       '</svg></div>';
