@@ -335,6 +335,13 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .head .nm{font-size:15px;font-weight:600;letter-spacing:.2px}
 .head .cd{font-size:11px;color:var(--vscode-descriptionForeground);padding-left:2px}
 .head .px{font-size:26px;font-weight:600;letter-spacing:-.5px;font-variant-numeric:tabular-nums;margin-left:auto}
+.head .px .sig{margin-right:4px;vertical-align:2px}
+.sig{width:16px;height:16px;display:inline-block}
+.rocket{animation:rocket-bob .9s ease-in-out infinite alternate}
+.rocket.down{animation-name:rocket-bob-down}
+@keyframes rocket-bob{from{transform:translateY(-1.5px)}to{transform:translateY(1.5px)}}
+@keyframes rocket-bob-down{from{transform:rotate(180deg) translateY(-1.5px)}to{transform:rotate(180deg) translateY(1.5px)}}
+body.boss .rocket,body.boss .rocket.down{animation:none}
 .head .chg{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;line-height:1.3;min-width:56px}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:3px 8px;padding:2px 12px 0;font-size:11px;color:var(--vscode-descriptionForeground)}
 .stats + .stats{padding-bottom:6px}
@@ -429,10 +436,42 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   });
   let lastTab=null;
   let lastChartKey=null;
-  const arrow=function(t){ return t==='up'?'▲':t==='down'?'▼':'▬'; };
+  const SIG={
+    rocketUp:'<svg class="sig rocket" viewBox="0 0 16 16">'
+      +'<path d="M8 .5 10.3 4H5.7Z" fill="currentColor"/>'
+      +'<rect x="4.8" y="3.6" width="6.4" height="6.2" rx="1.6" fill="currentColor"/>'
+      +'<circle cx="8" cy="5.9" r="1.5" fill="#12131a"/>'
+      +'<path d="M4.9 8.7 2.3 12.2H5.9Z" fill="currentColor"/>'
+      +'<path d="M11.1 8.7 13.7 12.2H10.1Z" fill="currentColor"/>'
+      +'<path d="M7 9.5 8 13.6 9 9.5Z" fill="#f4b400"/>'
+      +'<path d="M7.5 9.8 8 12.2 8.5 9.8Z" fill="#ffd54f"/></svg>',
+    rocketDown:'<svg class="sig rocket down" viewBox="0 0 16 16">'
+      +'<path d="M8 .5 10.3 4H5.7Z" fill="currentColor"/>'
+      +'<rect x="4.8" y="3.6" width="6.4" height="6.2" rx="1.6" fill="currentColor"/>'
+      +'<circle cx="8" cy="5.9" r="1.5" fill="#12131a"/>'
+      +'<path d="M4.9 8.7 2.3 12.2H5.9Z" fill="currentColor"/>'
+      +'<path d="M11.1 8.7 13.7 12.2H10.1Z" fill="currentColor"/>'
+      +'<path d="M7 9.5 8 13.6 9 9.5Z" fill="#f4b400"/>'
+      +'<path d="M7.5 9.8 8 12.2 8.5 9.8Z" fill="#ffd54f"/></svg>',
+    bolt:'<svg class="sig" viewBox="0 0 16 16"><path d="M9 1 3 9h4l-1 6 7-8H9Z" fill="currentColor"/></svg>',
+    triUp:'<svg class="sig" viewBox="0 0 16 16"><path d="M8 1.5 15 14.5H1Z" fill="currentColor" stroke-linejoin="round"/></svg>',
+    triDown:'<svg class="sig" viewBox="0 0 16 16"><path d="M8 14.5 15 1.5H1Z" fill="currentColor" stroke-linejoin="round"/></svg>',
+    diagUp:'<svg class="sig" viewBox="0 0 16 16"><path d="M2.5 13.5 12 4M7 4h5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    diagDown:'<svg class="sig" viewBox="0 0 16 16"><path d="M2.5 2.5 12 12M7 12h5V7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    flat:'<svg class="sig" viewBox="0 0 16 16"><rect x="2" y="7" width="12" height="2.2" rx="1.1" fill="currentColor"/></svg>'
+  };
+  const sig=function(m){
+    if(m.price!=null&&m.limitUp!=null&&m.price>=m.limitUp-0.01) return SIG.rocketUp;
+    if(m.price!=null&&m.limitDown!=null&&m.price<=m.limitDown+0.01) return SIG.rocketDown;
+    const a=Math.abs(m.changePct||0);
+    if(a>=5) return SIG.bolt;
+    if(a>=2) return m.changePct>0?SIG.triUp:SIG.triDown;
+    if(a>0) return m.changePct>0?SIG.diagUp:SIG.diagDown;
+    return SIG.flat;
+  };
   const headInner=function(m,pxCls,price,change,changePct){
     return '<span class="nm">'+esc(m.name)+'</span><span class="cd">'+esc(m.code)+'</span>'+
-      '<span class="px '+pxCls+'">'+arrow(m.trend)+' '+price.toFixed(2)+'</span>'+
+      '<span class="px '+pxCls+'">'+sig(m)+' '+price.toFixed(2)+'</span>'+
       '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span>';
   };
   const row1Inner=function(m,prevClose){
