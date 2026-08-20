@@ -641,4 +641,29 @@ describe('buildKlineLayout', () => {
     expect(L.xTicks.length).toBeGreaterThan(0);
     expect(L.yTicks.length).toBe(5);
   });
+
+  it('outputs null MA lines when fewer candles than period', () => {
+    const L = buildKlineLayout(klines);
+    expect(L.maLines).toHaveLength(3);
+    for (const ma of L.maLines) expect(ma.points).toBeNull();
+    expect(L.volMaLine).toBeNull();
+  });
+
+  it('builds MA5 line with enough candles', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
+      open: 10,
+      close: 10 + i * 0.1,
+      high: 10.5,
+      low: 9.5,
+      volume: 1000 + i * 10,
+    }));
+    const L = buildKlineLayout(many);
+    expect(L.maLines[0].n).toBe(5);
+    expect(L.maLines[0].points).not.toBeNull();
+    expect(L.maLines[0].points!.split(' ')).toHaveLength(16);
+    expect(L.maLines[2].points).not.toBeNull();
+    expect(L.volMaLine).not.toBeNull();
+    expect(L.volMaLine!.split(' ')).toHaveLength(16);
+  });
 });

@@ -689,6 +689,10 @@ export interface KlineLayout {
   xTicks: { x: number; label: string }[];
   yTicks: { y: number; label: string }[];
   lastPrice: number;
+  /** 收盘价均线折线（点数不足该周期时为 null） */
+  maLines: { n: number; points: string | null }[];
+  /** 5 日均量折线（点数不足 5 根时为 null） */
+  volMaLine: string | null;
 }
 
 /** K线单根蜡烛最大宽度（px，viewBox 单位）。数据少时限制宽度，避免单根蜡烛撑满整图。 */
@@ -696,11 +700,35 @@ const CANDLE_W_MAX = 14;
 /** 相邻刻度最小像素间隔，低于此则跳标，防止 x 轴文字重叠。 */
 const MIN_TICK_PX = 56;
 
+const MA_PERIODS = [5, 10, 20] as const;
+
+/** 滑动均值折线：自第 period 根起每根取前 period 根收盘均价。 */
+function buildMaPoints(
+  closes: number[],
+  period: number,
+  x: (i: number) => number,
+  y: (v: number) => number,
+): string | null {
+  if (closes.length < period) {
+    return null;
+  }
+  const pts: string[] = [];
+  for (let i = period - 1; i < closes.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      sum += closes[j];
+    }
+    pts.push(`${x(i).toFixed(1)},${y(sum / period).toFixed(1)}`);
+  }
+  return pts.join(' ');
+}
+
 export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
   const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
   const n = klines.length;
   const cw = Math.min(plotW / n, CANDLE_W_MAX);
   const bw = cw * 0.65;
+  const cx = (i: number) => CHART_PAD_L + i * cw + cw / 2;
 
   let lo = Infinity;
   let hi = -Infinity;
@@ -742,6 +770,12 @@ export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
     });
   }
 
+  const volY = (v: number) =>
+    CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - (v / vmax) * (CHART_VOL_H - 2));
+  const volMaLine = n >= 5
+    ? buildMaPoints(klines.map((k) => k.volume), 5, cx, volY)
+    : null;
+
   return {
     width: CHART_W,
     totalH: CHART_TOTAL_H,
@@ -752,5 +786,10 @@ export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
     xTicks,
     yTicks,
     lastPrice: klines[n - 1].close,
+    maLines: MA_PERIODS.map((p) => ({
+      n: p,
+      points: buildMaPoints(klines.map((k) => k.close), p, cx, y),
+    })),
+    volMaLine,
   };
 }

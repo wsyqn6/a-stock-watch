@@ -351,6 +351,13 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .chart text.limDown{fill:var(--down);opacity:.85}
 .chart text.avgEnd{fill:var(--avg);font-size:10px}
 .chart polyline.avg{fill:none;stroke:var(--avg);stroke-width:1.4;vector-effect:non-scaling-stroke}
+.chart polyline.ma{fill:none;stroke-width:1.1;vector-effect:non-scaling-stroke}
+.chart polyline.ma5{stroke:var(--vscode-foreground);opacity:.9}
+.chart polyline.ma10{stroke:#e5c07b}
+.chart polyline.ma20{stroke:#c678dd}
+.chart polyline.volma{fill:none;stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:3 2;opacity:.7;vector-effect:non-scaling-stroke}
+.chart line.lastprice{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:4 3;opacity:.8;vector-effect:non-scaling-stroke}
+@media (prefers-color-scheme: light){.chart polyline.ma10{stroke:#b8860b}.chart polyline.ma20{stroke:#7c3aed}}
 .chart polyline.price{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;transition:stroke-width .12s ease}
 .chart-wrap:hover polyline.price{stroke-width:2}
 @media (prefers-reduced-motion:reduce){.chart polyline.price{transition:none}}
@@ -436,12 +443,14 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
   const row2Inner=function(m,vol){
     const r=state.tab==='分时'
       ?[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['振幅',m.amplitude!=null?m.amplitude.toFixed(2)+'%':null]]
-      :[['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null],['市净率',m.pb!=null?m.pb.toFixed(2):null],['总市值',m.totalMcap!=null?fmtAmt(m.totalMcap):null]];
+      :[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null]];
     return r.map(a=>'<span>'+a[0]+' <b>'+(a[1]!=null?a[1]:'—')+'</b></span>').join('');
   };
   const footInner=function(m){
     const parts=[];
     if(m.circMcap!=null) parts.push('流通 '+fmtAmt(m.circMcap));
+    if(m.totalMcap!=null) parts.push('总市值 '+fmtAmt(m.totalMcap));
+    if(m.pb!=null) parts.push('市净 '+m.pb.toFixed(2));
     if(m.volRatio!=null) parts.push('量比 '+m.volRatio.toFixed(2));
     if(m.avgPrice!=null) parts.push('均价 '+m.avgPrice.toFixed(2));
     if(m.limitUp!=null) parts.push('涨停 '+m.limitUp.toFixed(2));
@@ -610,12 +619,20 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
       return '<g class="candle">'+wick+'<rect x="'+c.x+'" y="'+c.bodyY+'" width="'+c.w+'" height="'+Math.max(c.bodyH,1)+'" class="'+c.cls+'" rx="0"></rect></g>';
     }).join('');
     const volBars=K.volBars.map(b=>'<rect class="v '+b.cls+'" x="'+b.x.toFixed(1)+'" y="'+b.y.toFixed(1)+'" width="'+b.w.toFixed(2)+'" height="'+b.h.toFixed(1)+'"></rect>').join('');
+    const maEls=K.maLines.map(ma=>ma.points?('<polyline class="ma ma'+ma.n+'" points="'+ma.points+'"></polyline>'):'').join('');
+    const volMaEl=K.volMaLine?('<polyline class="volma" points="'+K.volMaLine+'"></polyline>'):'';
+    const lastCandle=K.candles[K.candles.length-1];
+    const closeY=lastCandle?(lastCandle.cls==='up'?lastCandle.bodyY:lastCandle.bodyY+lastCandle.bodyH):0;
+    const lastPriceEl=lastCandle?('<line class="lastprice" x1="0" y1="'+closeY.toFixed(1)+'" x2="'+plotW+'" y2="'+closeY.toFixed(1)+'"></line><text x="'+plotW+'" y="'+(closeY-3).toFixed(1)+'" text-anchor="end">'+K.lastPrice.toFixed(2)+'</text>'):'';
     return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridH+yLab+
       '<g id="candles">'+candles+'</g>'+
+      maEls+
       '<g id="vol">'+volBars+'</g>'+
+      volMaEl+
       '<line class="base" x1="0" y1="'+K.mainH+'" x2="'+plotW+'" y2="'+K.mainH+'"></line>'+
+      lastPriceEl+
       '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+plotW+'"></line></g>'+
       xLab+
       '</svg></div>';
