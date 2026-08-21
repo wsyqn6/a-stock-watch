@@ -256,6 +256,11 @@
           "type": "boolean",
           "default": false,
           "description": "老板模式：开启后界面全部灰显，低调不显眼"
+        },
+        "aStockWatch.bossModeTitle": {
+          "type": "string",
+          "default": "文档",
+          "description": "老板模式下 K线/走势面板在任务栏（窗口标题）显示的中性标题，用于伪装成普通文档"
         }
       }
     }
