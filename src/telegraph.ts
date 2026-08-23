@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { fetchWithTimeout } from './http';
-import { beijingDateStr } from './dataSource';
+import { beijingDateStr, BEIJING_OFFSET_MS } from './dataSource';
 
 export interface TelegraphStock {
   name: string;
@@ -173,8 +173,6 @@ export function fmtPct(p: number | null): string {
   const body = Math.abs(p).toFixed(2);
   return `${p > 0 ? '+' : '-'}${body}%`;
 }
-
-const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /** 电报时间展示：今天 → HH:MM；昨天 → 昨天 HH:MM；更早 → MM-DD HH:MM（均北京时间）。 */
 export function formatTelegraphTime(ts: number, now: Date = new Date()): string {

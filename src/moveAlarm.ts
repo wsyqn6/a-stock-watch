@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { RefreshManager, QuoteSink } from './refreshManager';
-import { StockQuote, fetchQuotes } from './dataSource';
+import { StockQuote } from './dataSource';
 import { Store } from './store';
 import { MinuteDetailPanel } from './minuteDetailPanel';
 import { MoveAlarmState, hitDirection } from './moveAlarmCore';
+import { fetchQuotesCached } from './quoteCache';
+import { config } from './config';
 
 /** 告警后台轮询间隔：独立于侧边栏刷新频率，异动检测无需秒级，拉长降开销。 */
 const ALARM_INTERVAL_SEC = 15;
@@ -36,12 +38,11 @@ export class MoveAlarm implements QuoteSink, vscode.Disposable {
   }
 
   private applyConfig(): void {
-    const cfg = vscode.workspace.getConfiguration('aStockWatch');
-    this.enabled = !!cfg.get('bigMoveAlert', false);
-    this.thresholdPct = cfg.get('bigMoveAlertPct', 5);
-    const cooldownMin = Math.max(1, cfg.get('bigMoveAlertCooldownMin', 30));
+    this.enabled = config.bigMoveAlert();
+    this.thresholdPct = config.bigMoveAlertPct();
+    const cooldownMin = Math.max(1, config.bigMoveAlertCooldownMin());
     this.state = new MoveAlarmState(cooldownMin * 60_000);
-    this.boss = !!cfg.get('bossMode', false);
+    this.boss = config.bossMode();
   }
 
   getSymbols(): string[] {
@@ -54,7 +55,7 @@ export class MoveAlarm implements QuoteSink, vscode.Disposable {
     }
     let quotes: StockQuote[];
     try {
-      quotes = await fetchQuotes(symbols);
+      quotes = await fetchQuotesCached(symbols);
     } catch {
       return;
     }

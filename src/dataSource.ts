@@ -221,7 +221,7 @@ const F = {
 const MIN_FIELDS = F.high; // 至少含到最高价字段（索引33）即可解析，high/low 可能缺失
 
 /** 转为有效正数；无效（NaN/0/负数）返回 undefined。 */
-function toFinitePos(v: string | undefined): number | undefined {
+export function toFinitePos(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
@@ -607,7 +607,7 @@ const MORNING_OPEN = 570; // 09:30
 const MORNING_END = 690; // 11:30
 const AFTERNOON_START = 780; // 13:00
 const AFTERNOON_END = 900; // 15:00
-const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+export const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 let closedDay = '';
 

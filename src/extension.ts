@@ -5,6 +5,7 @@ import { StatusBarController } from './statusBarController';
 import { searchStock, searchEastmoney, SearchResult } from './search';
 import { MoveAlarm } from './moveAlarm';
 import { TelegraphView } from './telegraphView';
+import { config } from './config';
 
 interface PickItem extends vscode.QuickPickItem {
   result?: SearchResult;
@@ -26,7 +27,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(provider);
 
   const applyBossMode = (): void => {
-    const boss = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
+    const boss = config.bossMode();
     void vscode.commands.executeCommand('setContext', 'aStockWatch.bossMode', boss);
     provider.setBossMode(boss);
     statusBar.setBoss(boss);
@@ -34,7 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
   applyBossMode();
 
   const applyTelegraph = (): void => {
-    const show = !!vscode.workspace.getConfiguration('aStockWatch').get('showTelegraph');
+    const show = config.showTelegraph();
     void vscode.commands.executeCommand('setContext', 'aStockWatch.showTelegraph', show);
   };
   applyTelegraph();
@@ -213,7 +214,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('a-stock-watch.bossMode', () => {
-      const cur = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
+      const cur = config.bossMode();
       void vscode.workspace
         .getConfiguration('aStockWatch')
         .update('bossMode', !cur, vscode.ConfigurationTarget.Global);

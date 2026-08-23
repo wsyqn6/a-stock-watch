@@ -4,7 +4,6 @@ import {
   MinuteChartLayout,
   KlineLayout,
   KlinePeriod,
-  fetchQuotes,
   fetchKline,
   getMinuteCached,
   buildMinuteChart,
@@ -14,6 +13,8 @@ import {
   KLINE_CANDLE_COUNT,
 } from './dataSource';
 import { getNonce } from './util';
+import { fetchQuotesCached } from './quoteCache';
+import { config } from './config';
 
 const REFRESH_INTERVAL_MS = 10_000;
 
@@ -106,14 +107,14 @@ export class MinuteDetailPanel {
     });
     this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('aStockWatch.bossMode') || e.affectsConfiguration('aStockWatch.bossModeTitle')) {
-        this.boss = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
+        this.boss = config.bossMode();
         this.panel.title = this.titleFor(this.quote);
         if (this.ready) {
           this.push();
         }
       }
     });
-    this.boss = !!vscode.workspace.getConfiguration('aStockWatch').get('bossMode');
+    this.boss = config.bossMode();
     if (panel.visible) {
       this.startTimer();
     }
@@ -164,7 +165,7 @@ export class MinuteDetailPanel {
 
   private titleFor(q?: StockQuote): string {
     if (this.boss) {
-      return vscode.workspace.getConfiguration('aStockWatch').get('bossModeTitle', '文档');
+      return config.bossModeTitle();
     }
     return `${q?.name ?? this.symbol} · 走势`;
   }
@@ -172,7 +173,7 @@ export class MinuteDetailPanel {
   private async fetchData(refetchQuote: boolean): Promise<void> {
     if (refetchQuote || !this.quote || this.quote.symbol !== this.symbol) {
       try {
-        const list = await fetchQuotes([this.symbol]);
+        const list = await fetchQuotesCached([this.symbol]);
         this.quote = list[0];
       } catch {
         // keep the last known quote only when symbols match

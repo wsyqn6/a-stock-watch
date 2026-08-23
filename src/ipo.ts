@@ -1,5 +1,5 @@
 import { fetchWithTimeout } from './http';
-import { beijingDateStr } from './dataSource';
+import { beijingDateStr, BEIJING_OFFSET_MS, toFinitePos } from './dataSource';
 
 /** 待申购新股。 */
 export interface NewStockApply {
@@ -31,8 +31,6 @@ export interface NewBondApply {
 
 const DC_URL = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
 
-const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
-
 /** 东财数据中心接口实际返回 UTF-8（header charset=UTF-8 属实，与腾讯 GBK 行情不同）。 */
 async function getDataRows(url: string): Promise<Record<string, unknown>[]> {
   const res = await fetchWithTimeout(url);
@@ -54,12 +52,6 @@ export function parseDataRows(text: string): Record<string, unknown>[] {
   }
   const rows = (root as { result?: { data?: unknown[] } } | null)?.result?.data;
   return Array.isArray(rows) ? (rows.filter((r) => r && typeof r === 'object') as Record<string, unknown>[]) : [];
-}
-
-/** 转为有效正数；NaN/0/负数/缺省返回 undefined。 */
-function toFinitePos(v: unknown): number | undefined {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 /** 股 → 万股（东财 ONLINE_APPLY_UPPER 单位为股，展示用万股）。 */
@@ -264,8 +256,4 @@ export function groupByDay(stocks: NewStockApply[], bonds: NewBondApply[]): IpoD
     stocks: (stockBy.get(date) ?? []).map(toStockRow),
     bonds: (bondBy.get(date) ?? []).map(toBondRow),
   }));
-}
-
-export function pad(n: number): string {
-  return n < 10 ? `0${n}` : `${n}`;
 }

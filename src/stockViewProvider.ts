@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import {
   StockQuote,
-  fetchQuotes,
   fetchMarketBreadth,
   getMinuteCached,
   buildSpark,
@@ -16,6 +15,8 @@ import { RefreshManager } from './refreshManager';
 import { orderQuotes, SortMode } from './order';
 import { MinuteDetailPanel } from './minuteDetailPanel';
 import { getNonce } from './util';
+import { fetchQuotesCached } from './quoteCache';
+import { config } from './config';
 import {
   fetchNewStockApplies,
   fetchNewBondApplies,
@@ -298,7 +299,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       );
       if (symbols.some((s) => !pcMap.has(s))) {
         try {
-          for (const q of await fetchQuotes(symbols)) {
+          for (const q of await fetchQuotesCached(symbols)) {
             pcMap.set(q.symbol, q.prevClose);
           }
         } catch {
@@ -367,9 +368,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 
   /** 概览条展示的指数符号（配置可选，默认上证）。 */
   private getMarketIndexSymbol(): MarketIndexSymbol {
-    const cfg = vscode.workspace
-      .getConfiguration('aStockWatch')
-      .get<string>('marketIndex', 'sh000001');
+    const cfg = config.marketIndex();
     return (MARKET_INDEX_OPTIONS as readonly string[]).includes(cfg)
       ? (cfg as MarketIndexSymbol)
       : 'sh000001';
@@ -378,11 +377,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   /** 需要刷新迷你分时的符号：自选股 + 概览指数（showMarketBar 开启时）。 */
   private minuteSymbols(): string[] {
     const symbols = [...this.store.getAll()];
-    if (
-      vscode.workspace
-        .getConfiguration('aStockWatch')
-        .get<boolean>('showMarketBar', true)
-    ) {
+    if (config.showMarketBar()) {
       const idx = this.getMarketIndexSymbol();
       if (!symbols.includes(idx)) {
         symbols.push(idx);
@@ -403,16 +398,14 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   async refresh(symbols: string[]): Promise<void> {
     // 概览指数并入同一批量请求，守"全部标的单次 HTTP"原则；自选股为空也保留指数概览。
     // showMarketBar 关闭时不再合并指数、不请求涨跌家数。
-    const showMarket = vscode.workspace
-      .getConfiguration('aStockWatch')
-      .get<boolean>('showMarketBar', true);
+    const showMarket = config.showMarketBar();
     const idxSym = showMarket ? this.getMarketIndexSymbol() : null;
     const wanted = new Set(symbols);
     const fetchList = [
       ...new Set(idxSym ? [idxSym, ...symbols] : symbols),
     ] as string[];
     try {
-      const all = await fetchQuotes(fetchList);
+      const all = await fetchQuotesCached(fetchList);
       this.quotes = wanted.size > 0 ? all.filter((q) => wanted.has(q.symbol)) : [];
       this.indexQuotes = idxSym ? all.filter((q) => q.symbol === idxSym) : [];
       this.error =
@@ -471,9 +464,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 
   /** 拉取未来 3 个交易日新股/新债申购；失败显示错误。与行情独立刷新。showIpo 关闭时清空并隐藏，不请求。 */
   async refreshIpo(): Promise<void> {
-    const showIpo = vscode.workspace
-      .getConfiguration('aStockWatch')
-      .get<boolean>('showIpo', true);
+    const showIpo = config.showIpo();
     if (!showIpo) {
       if (this.ipoDays.length > 0 || this.ipoError !== null) {
         this.ipoDays = [];
@@ -505,9 +496,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (!this.view || !this.view.visible) {
       return;
     }
-    const show = vscode.workspace
-      .getConfiguration('aStockWatch')
-      .get<boolean>('showIpo', true);
+    const show = config.showIpo();
     void this.view.webview.postMessage({
       type: 'ipo',
       show,
@@ -528,9 +517,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const items = this.ordered().map((q) =>
       toViewItem(q, this.sparks.get(q.symbol) ?? null, this.store.statusBarHas(q.symbol), pinned.has(q.symbol)),
     );
-    const showMarket = vscode.workspace
-      .getConfiguration('aStockWatch')
-      .get<boolean>('showMarketBar', true);
+    const showMarket = config.showMarketBar();
     const market: MarketPayload = {
       show: showMarket,
       indices: this.indexQuotes.map((q) =>

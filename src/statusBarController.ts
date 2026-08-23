@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { Store } from './store';
 import { RefreshManager, QuoteSink } from './refreshManager';
-import { StockQuote, fetchQuotes } from './dataSource';
+import { StockQuote } from './dataSource';
+import { fetchQuotesCached } from './quoteCache';
 
 const UP = { dark: '#F07862', light: '#C73E2E' };
 const DOWN = { dark: '#2FAE75', light: '#2F8F5B' };
@@ -43,7 +44,7 @@ export class StatusBarController implements QuoteSink, vscode.Disposable {
     }
     if (symbols.length > 0) {
       try {
-        for (const q of await fetchQuotes(symbols)) {
+        for (const q of await fetchQuotesCached(symbols)) {
           this.quotes.set(q.symbol, q);
         }
       } catch {

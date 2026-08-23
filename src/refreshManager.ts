@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { isTradingTime } from './dataSource';
+import { config } from './config';
 
 export interface QuoteSink {
   getSymbols(): string[];
@@ -37,9 +38,7 @@ export class RefreshManager implements vscode.Disposable {
     }
     const sec =
       this.intervalSecOverride ??
-      vscode.workspace
-        .getConfiguration('aStockWatch')
-        .get<number>('refreshIntervalSec', 3);
+      config.refreshIntervalSec();
     const ms = Math.max(1, sec) * 1000;
     this.timer = setInterval(() => void this.autoRefresh(), ms);
   }

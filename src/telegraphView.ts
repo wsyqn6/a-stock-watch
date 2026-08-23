@@ -9,6 +9,7 @@ import {
   toTelegraphDisplayItem,
 } from './telegraph';
 import { getNonce } from './util';
+import { config } from './config';
 
 interface DisplayStock {
   name: string;
@@ -25,7 +26,6 @@ interface DisplayItem {
   stocks: DisplayStock[];
 }
 
-const DEFAULT_INTERVAL_SEC = 30;
 const HISTORY_RN = 20;
 const MAX_ITEMS = 200;
 
@@ -112,7 +112,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     this.stop();
     const sec = Math.max(
       10,
-      vscode.workspace.getConfiguration('aStockWatch').get<number>('telegraphIntervalSec', DEFAULT_INTERVAL_SEC),
+      config.telegraphIntervalSec(),
     );
     this.timer = setInterval(() => void this.refresh(), sec * 1000);
   }
