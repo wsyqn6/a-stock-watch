@@ -666,4 +666,43 @@ describe('buildKlineLayout', () => {
     expect(L.volMaLine).not.toBeNull();
     expect(L.volMaLine!.split(' ')).toHaveLength(16);
   });
+
+  it('computes per-candle MA values numerically correct', () => {
+    // 收盘价 10,11,…,34，等差数列便于口算均值
+    const closes = Array.from({ length: 25 }, (_, i) => 10 + i);
+    const many: KlinePoint[] = closes.map((c, i) => ({
+      date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
+      open: c, close: c, high: c + 1, low: c - 1, volume: 100,
+    }));
+    const L = buildKlineLayout(many);
+    expect(L.maValues.map((m) => m.n)).toEqual([5, 10, 20]);
+    for (const mv of L.maValues) expect(mv.vals).toHaveLength(25);
+    expect(L.maValues[0].vals[3]).toBeNull();
+    expect(L.maValues[0].vals[4]).toBeCloseTo((10 + 11 + 12 + 13 + 14) / 5, 6);
+    expect(L.maValues[1].vals[8]).toBeNull();
+    expect(L.maValues[1].vals[9]).toBeCloseTo(14.5, 6);
+    expect(L.maValues[2].vals[18]).toBeNull();
+    expect(L.maValues[2].vals[19]).toBeCloseTo(19.5, 6);
+    expect(L.volMaVals[3]).toBeNull();
+    expect(L.volMaVals[4]).toBeCloseTo(100, 6);
+  });
+
+  it('renders display window while computing MA over full history', () => {
+    const closes = Array.from({ length: 79 }, (_, i) => 10 + i * 0.5);
+    const many: KlinePoint[] = closes.map((c, i) => ({
+      date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
+      open: c, close: c, high: c + 1, low: c - 1, volume: 500 + i,
+    }));
+    const L = buildKlineLayout(many, 60);
+    expect(L.candles).toHaveLength(60);
+    expect(L.lastPrice).toBe(closes[78]);
+    // 可见窗口首根（全量第 19 根）即有 MA20 值：窗口外历史参与计算
+    expect(L.maValues[2].vals[0]).toBeCloseTo(
+      closes.slice(0, 20).reduce((a, b) => a + b, 0) / 20, 6,
+    );
+    expect(L.maLines[2].points!.split(' ')).toHaveLength(60);
+    for (const mv of L.maValues) expect(mv.vals).toHaveLength(60);
+    expect(L.volMaVals).toHaveLength(60);
+    expect(L.xTicks.every((t) => t.label.length > 0)).toBe(true);
+  });
 });

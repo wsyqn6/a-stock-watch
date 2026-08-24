@@ -15,6 +15,13 @@ export type KlinePeriod = 'day' | 'week' | 'month';
 
 export const KLINE_CANDLE_COUNT = 60;
 
+/** 收盘价均线周期。 */
+const MA_PERIODS = [5, 10, 20] as const;
+/** 均量线周期。 */
+const VOL_MA_PERIOD = 5;
+/** 拉取根数：显示窗口外多取 MA20 起点所需历史，使均线覆盖整个可见区间。 */
+export const KLINE_FETCH_COUNT = KLINE_CANDLE_COUNT + MA_PERIODS[2] - 1;
+
 const klineCache = new Map<string, { data: KlinePoint[]; ts: number }>();
 const KLINE_TTL_MS = 60_000;
 
@@ -691,8 +698,12 @@ export interface KlineLayout {
   lastPrice: number;
   /** 收盘价均线折线（点数不足该周期时为 null） */
   maLines: { n: number; points: string | null }[];
+  /** 与 candles 对齐的每根收盘均价（窗口前数据不足时为 null），供图例与十字光标取值 */
+  maValues: { n: number; vals: (number | null)[] }[];
   /** 5 日均量折线（点数不足 5 根时为 null） */
   volMaLine: string | null;
+  /** 与 candles 对齐的每根 5 日均量 */
+  volMaVals: (number | null)[];
 }
 
 /** K线单根蜡烛最大宽度（px，viewBox 单位）。数据少时限制宽度，避免单根蜡烛撑满整图。 */
@@ -700,32 +711,48 @@ const CANDLE_W_MAX = 14;
 /** 相邻刻度最小像素间隔，低于此则跳标，防止 x 轴文字重叠。 */
 const MIN_TICK_PX = 56;
 
-const MA_PERIODS = [5, 10, 20] as const;
+/** 滚动累加滑动均值：前置不足 period 的位置为 null，整体 O(n)。 */
+function movingAverage(values: number[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= period) {
+      sum -= values[i - period];
+    }
+    if (i >= period - 1) {
+      out[i] = sum / period;
+    }
+  }
+  return out;
+}
 
-/** 滑动均值折线：自第 period 根起每根取前 period 根收盘均价。 */
-function buildMaPoints(
-  closes: number[],
-  period: number,
+/** 均值折线：把全量均值映射到自 start 起的可见窗口坐标；无有效点时为 null。 */
+function maPolyline(
+  mas: (number | null)[],
+  start: number,
   x: (i: number) => number,
   y: (v: number) => number,
 ): string | null {
-  if (closes.length < period) {
-    return null;
-  }
   const pts: string[] = [];
-  for (let i = period - 1; i < closes.length; i++) {
-    let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      sum += closes[j];
+  for (let i = start; i < mas.length; i++) {
+    const v = mas[i];
+    if (v != null) {
+      pts.push(`${x(i - start).toFixed(1)},${y(v).toFixed(1)}`);
     }
-    pts.push(`${x(i).toFixed(1)},${y(sum / period).toFixed(1)}`);
   }
-  return pts.join(' ');
+  return pts.length > 0 ? pts.join(' ') : null;
 }
 
-export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
+/** 构建 K 线布局。displayCount 指定只渲染末尾多少根，均线仍按全量历史计算。 */
+export function buildKlineLayout(klines: KlinePoint[], displayCount?: number): KlineLayout {
+  const start =
+    typeof displayCount === 'number' && displayCount < klines.length
+      ? klines.length - displayCount
+      : 0;
+  const view = klines.slice(start);
+  const n = view.length;
   const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
-  const n = klines.length;
   const cw = Math.min(plotW / n, CANDLE_W_MAX);
   const bw = cw * 0.65;
   const cx = (i: number) => CHART_PAD_L + i * cw + cw / 2;
@@ -733,7 +760,7 @@ export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
   let lo = Infinity;
   let hi = -Infinity;
   let vmax = 0;
-  for (const k of klines) {
+  for (const k of view) {
     if (k.low < lo) lo = k.low;
     if (k.high > hi) hi = k.high;
     if (k.volume > vmax) vmax = k.volume;
@@ -744,14 +771,14 @@ export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
   const labelStep = Math.max(1, Math.floor(MIN_TICK_PX / cw));
   const xTicks: { x: number; label: string }[] = [];
   for (let i = 0; i < n; i += labelStep) {
-    xTicks.push({ x: CHART_PAD_L + i * cw + cw / 2, label: klines[i].date.slice(5) });
+    xTicks.push({ x: CHART_PAD_L + i * cw + cw / 2, label: view[i].date.slice(5) });
   }
 
   const candles: KlineCandle[] = [];
   const volBars: KlineLayout['volBars'] = [];
 
   for (let i = 0; i < n; i++) {
-    const k = klines[i];
+    const k = view[i];
     const x = CHART_PAD_L + i * cw + (cw - bw) / 2;
     const cls: 'up' | 'down' = k.close >= k.open ? 'up' : 'down';
     const bodyY = y(Math.max(k.open, k.close));
@@ -772,9 +799,8 @@ export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
 
   const volY = (v: number) =>
     CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - (v / vmax) * (CHART_VOL_H - 2));
-  const volMaLine = n >= 5
-    ? buildMaPoints(klines.map((k) => k.volume), 5, cx, volY)
-    : null;
+  const closeMas = MA_PERIODS.map((p) => movingAverage(klines.map((k) => k.close), p));
+  const volMaFull = movingAverage(klines.map((k) => k.volume), VOL_MA_PERIOD);
 
   return {
     width: CHART_W,
@@ -785,11 +811,13 @@ export function buildKlineLayout(klines: KlinePoint[]): KlineLayout {
     volBars,
     xTicks,
     yTicks,
-    lastPrice: klines[n - 1].close,
-    maLines: MA_PERIODS.map((p) => ({
-      n: p,
-      points: buildMaPoints(klines.map((k) => k.close), p, cx, y),
+    lastPrice: view[n - 1].close,
+    maLines: closeMas.map((vals, idx) => ({
+      n: MA_PERIODS[idx],
+      points: maPolyline(vals, start, cx, y),
     })),
-    volMaLine,
+    maValues: closeMas.map((vals, idx) => ({ n: MA_PERIODS[idx], vals: vals.slice(start) })),
+    volMaLine: maPolyline(volMaFull, start, cx, volY),
+    volMaVals: volMaFull.slice(start),
   };
 }

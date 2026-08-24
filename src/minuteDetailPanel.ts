@@ -11,6 +11,7 @@ import {
   clearKlineCache,
   isTradingTime,
   KLINE_CANDLE_COUNT,
+  KLINE_FETCH_COUNT,
 } from './dataSource';
 import { getNonce } from './util';
 import { fetchQuotesCached } from './quoteCache';
@@ -75,7 +76,7 @@ export class MinuteDetailPanel {
     panel.webview.options = { enableScripts: true };
     panel.webview.html = this.html();
     panel.webview.onDidReceiveMessage((msg) => {
-      const m = msg as { type?: string; period?: KlinePeriod } | null;
+      const m = msg as { type?: string; period?: KlinePeriod; force?: boolean } | null;
       if (!m) {
         return;
       }
@@ -88,7 +89,7 @@ export class MinuteDetailPanel {
           this.push();
         }
       } else if (m.type === 'needKline' && m.period) {
-        void this.ensureKline(m.period);
+        void this.ensureKline(m.period, m.force === true);
       }
     });
     this.disposeSub = panel.onDidDispose(() => this.onDispose());
@@ -233,22 +234,21 @@ export class MinuteDetailPanel {
     this.push();
   }
 
-  /** 按需拉取并缓存指定周期的 K 线布局（命中缓存则不重复请求）。 */
-  private async ensureKline(period: KlinePeriod): Promise<void> {
+  /** 按需拉取并缓存指定周期的 K 线布局（命中缓存则不重复请求；force 跳过缓存用于定时刷新）。 */
+  private async ensureKline(period: KlinePeriod, force = false): Promise<void> {
     if (!this.ready) {
       return;
     }
-    if (this.klineLayouts.has(period)) {
+    if (!force && this.klineLayouts.has(period)) {
       return;
     }
     try {
-      const all = await fetchKline(this.symbol, KLINE_CANDLE_COUNT, period);
-      const sliced = all.slice(-KLINE_CANDLE_COUNT);
-      if (sliced.length < 2) {
+      const all = await fetchKline(this.symbol, KLINE_FETCH_COUNT, period);
+      if (all.length < 2) {
         void this.panel.webview.postMessage({ type: 'kline', period, error: 'K线数据不足' });
         return;
       }
-      const layout = buildKlineLayout(sliced);
+      const layout = buildKlineLayout(all, KLINE_CANDLE_COUNT);
       this.klineLayouts.set(period, layout);
       void this.panel.webview.postMessage({ type: 'kline', period, layout });
     } catch (err) {
@@ -372,8 +372,18 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
 .chart polyline.ma10{stroke:#e5c07b}
 .chart polyline.ma20{stroke:#c678dd}
 .chart polyline.volma{fill:none;stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:3 2;opacity:.7;vector-effect:non-scaling-stroke}
+.malegend{position:absolute;top:3px;left:8px;display:flex;flex-wrap:wrap;gap:2px 10px;z-index:3;font-size:11px;color:var(--vscode-descriptionForeground);user-select:none;pointer-events:none}
+.malegend span{pointer-events:auto;cursor:pointer;display:inline-flex;align-items:center;gap:4px;line-height:15px}
+.malegend span:hover{color:var(--vscode-foreground)}
+.malegend span.off{opacity:.35}
+.malegend b{color:var(--vscode-foreground);font-weight:600;font-variant-numeric:tabular-nums}
+.malegend .sw{width:10px;height:2px;border-radius:1px;display:inline-block;flex:none}
+.malegend .sw.lg5{background:var(--vscode-foreground)}
+.malegend .sw.lg10{background:#e5c07b}
+.malegend .sw.lg20{background:#c678dd}
+.malegend .sw.lgv{background:var(--vscode-descriptionForeground)}
 .chart line.lastprice{stroke:var(--vscode-descriptionForeground);stroke-width:1;stroke-dasharray:4 3;opacity:.8;vector-effect:non-scaling-stroke}
-@media (prefers-color-scheme: light){.chart polyline.ma10{stroke:#b8860b}.chart polyline.ma20{stroke:#7c3aed}}
+@media (prefers-color-scheme: light){.chart polyline.ma10{stroke:#b8860b}.chart polyline.ma20{stroke:#7c3aed}.malegend .sw.lg10{background:#b8860b}.malegend .sw.lg20{background:#7c3aed}}
 .chart polyline.price{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;transition:stroke-width .12s ease}
 .chart-wrap:hover polyline.price{stroke-width:2}
 @media (prefers-reduced-motion:reduce){.chart polyline.price{transition:none}}
@@ -427,19 +437,42 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   const TABS=['分时','日K','周K','月K'];
   let last=null;
   let sym=null;
-  let state={tab:'分时',klines:{}};
+  let state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{}};
+  const KLINE_TTL_MS=60000;
+  function requestKline(p){
+    if(state.klinesPending[p])return;
+    state.klinesPending[p]=true;
+    api.postMessage({type:'needKline',period:p,force:true});
+  }
+  function needFetch(p){
+    return !state.klines[p]||(state.klinesTs[p]!=null&&Date.now()-state.klinesTs[p]>KLINE_TTL_MS);
+  }
+  function maybeRefreshKline(){
+    const p=periodFor(state.tab);
+    if(p&&!state.klinesPending[p]&&state.klines[p]&&!state.klines[p].error&&needFetch(p))requestKline(p);
+  }
   api.postMessage({type:'ready'});
   window.addEventListener('message',e=>{
     const m=e.data;
     if(!m)return;
     if(m.type==='data'){
-      if(m.symbol!==sym){ sym=m.symbol; state={tab:'分时',klines:{}}; }
-      if(m.klineLayouts) state.klines=m.klineLayouts;
+      if(m.symbol!==sym){ sym=m.symbol; state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{}}; }
+      if(m.klineLayouts){
+        state.klines=m.klineLayouts;
+        // 反序列化恢复的布局无时间戳，标记为过期以触发一次刷新
+        for(const k in state.klines)state.klinesTs[k]=0;
+      }
       last=m;
       render(m);
+      maybeRefreshKline();
     } else if(m.type==='kline'){
-      if(m.error){ state.klines[m.period]={error:m.error}; }
-      else { state.klines[m.period]=m.layout; }
+      state.klinesPending[m.period]=false;
+      if(m.error){
+        // 定时刷新失败时保留旧图继续展示，仅顺延下轮刷新时间
+        if(!state.klines[m.period]||state.klines[m.period].error)state.klines[m.period]={error:m.error};
+        else state.klinesTs[m.period]=Date.now();
+      }
+      else { state.klines[m.period]=m.layout; state.klinesTs[m.period]=Date.now(); }
       render(last);
     }
   });
@@ -561,7 +594,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
         state.tab=btn.dataset.tab;
         if(state.tab!=='分时'){
           const p=periodFor(state.tab);
-          if(p&&!state.klines[p]) api.postMessage({type:'needKline',period:p});
+          if(p&&needFetch(p))requestKline(p);
         }
         render(last);
       });
@@ -655,10 +688,14 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     });
     svg.addEventListener('mouseleave',()=>{ last=-1; cross.style.display='none'; tip.style.display='none'; });
   }
+  function maSuffix(tab){
+    return tab==='周K'?'W':tab==='月K'?'M':'';
+  }
   function klineSVG(tab){
     const K=state.klines[periodFor(tab)];
     if(!K) return '<div class="msg">加载K线…</div>';
     if(K.error) return '<div class="msg">'+K.error+'</div>';
+    const suf=maSuffix(tab);
     const W=K.width,H=K.totalH,plotW=W-K.volH;
     const gridH=K.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+plotW+'" y2="'+t.y+'"></line>').join('');
     const yLab=K.yTicks.map(t=>'<text x="'+(plotW+4)+'" y="'+(t.y+3)+'" dominant-baseline="hanging">'+t.label+'</text>').join('');
@@ -668,12 +705,24 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       return '<g class="candle">'+wick+'<rect x="'+c.x+'" y="'+c.bodyY+'" width="'+c.w+'" height="'+Math.max(c.bodyH,1)+'" class="'+c.cls+'" rx="0"></rect></g>';
     }).join('');
     const volBars=K.volBars.map(b=>'<rect class="v '+b.cls+'" x="'+b.x.toFixed(1)+'" y="'+b.y.toFixed(1)+'" width="'+b.w.toFixed(2)+'" height="'+b.h.toFixed(1)+'"></rect>').join('');
-    const maEls=K.maLines.map(ma=>ma.points?('<polyline class="ma ma'+ma.n+'" points="'+ma.points+'"></polyline>'):'').join('');
-    const volMaEl=K.volMaLine?('<polyline class="volma" points="'+K.volMaLine+'"></polyline>'):'';
+    const maEls=K.maLines.map(ma=>{
+      if(!ma.points)return '';
+      return '<polyline class="ma ma'+ma.n+'" id="maline-'+ma.n+'" points="'+ma.points+'"'+(state.maHide[String(ma.n)]?' style="display:none"':'')+'></polyline>';
+    }).join('');
+    const volMaEl=K.volMaLine?('<polyline class="volma" id="maline-vol" points="'+K.volMaLine+'"'+(state.maHide.vol?' style="display:none"':'')+'></polyline>'):'';
+    const lastVal=function(vals){return vals[vals.length-1];};
+    const legendItems=K.maLines.map(function(ma,i){
+      return {k:String(ma.n),label:'MA'+ma.n+suf,v:lastVal(K.maValues[i].vals)};
+    });
+    legendItems.push({k:'vol',label:'均量5',v:lastVal(K.volMaVals)});
+    const legend='<div class="malegend">'+legendItems.map(function(it){
+      const txt=it.v==null?'—':(it.k==='vol'?fmtVol(it.v):it.v.toFixed(2));
+      return '<span data-k="'+it.k+'" class="'+(state.maHide[it.k]?'off':'')+'"><i class="sw lg'+(it.k==='vol'?'v':it.k)+'"></i>'+esc(it.label)+' <b>'+txt+'</b></span>';
+    }).join('')+'</div>';
     const lastCandle=K.candles[K.candles.length-1];
     const closeY=lastCandle?(lastCandle.cls==='up'?lastCandle.bodyY:lastCandle.bodyY+lastCandle.bodyH):0;
     const lastPriceEl=lastCandle?('<line class="lastprice" x1="0" y1="'+closeY.toFixed(1)+'" x2="'+plotW+'" y2="'+closeY.toFixed(1)+'"></line><text x="'+plotW+'" y="'+(closeY-3).toFixed(1)+'" text-anchor="end">'+K.lastPrice.toFixed(2)+'</text>'):'';
-    return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
+    return '<div class="chart-wrap">'+legend+'<div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridH+yLab+
       '<g id="candles">'+candles+'</g>'+
@@ -682,7 +731,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       volMaEl+
       '<line class="base" x1="0" y1="'+K.mainH+'" x2="'+plotW+'" y2="'+K.mainH+'"></line>'+
       lastPriceEl+
-      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+plotW+'"></line></g>'+
+      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+plotW+'"></line><circle id="kp" r="3"></circle></g>'+
       xLab+
       '</svg></div>';
   }
@@ -693,6 +742,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     const cross=document.getElementById('cross');
     const cx=document.getElementById('cx');
     const cy=document.getElementById('cy');
+    const kp=document.getElementById('kp');
     const tip=document.getElementById('tip');
     const W=K.width;
     const show=function(best){
@@ -703,6 +753,9 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       cross.style.display='';
       cx.setAttribute('x1',cxPos); cx.setAttribute('x2',cxPos);
       cy.setAttribute('y1',closeY); cy.setAttribute('y2',closeY);
+      if(kp){ kp.setAttribute('cx',cxPos); kp.setAttribute('cy',closeY); kp.className.baseVal='p '+c.cls; }
+      const suf=maSuffix(state.tab);
+      const fmtMa=function(v){return v==null?'—':v.toFixed(2);};
       tip.style.display='block';
       tip.innerHTML=
         '<div class="row"><span>'+c.date+'</span></div>'+
@@ -710,6 +763,11 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
         '<div class="row"><span>收</span><b class="'+c.cls+'">'+c.close.toFixed(2)+'</b></div>'+
         '<div class="row"><span>高</span><b>'+c.high.toFixed(2)+'</b></div>'+
         '<div class="row"><span>低</span><b>'+c.low.toFixed(2)+'</b></div>'+
+        K.maValues.map(function(mv){
+          if(state.maHide[String(mv.n)])return '';
+          return '<div class="row"><span>MA'+mv.n+suf+'</span><b>'+fmtMa(mv.vals[best])+'</b></div>';
+        }).join('')+
+        (state.maHide.vol?'':'<div class="row"><span>均量5</span><b>'+(K.volMaVals[best]==null?'—':fmtVol(K.volMaVals[best]))+'</b></div>')+
         '<div class="row"><span>量</span><b>'+fmtVol(c.volume)+'</b></div>';
       const frac=cxPos/W;
       const rw=svg.parentNode.getBoundingClientRect();
@@ -741,6 +799,16 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       raf=requestAnimationFrame(()=>show(best));
     });
     svg.addEventListener('mouseleave',()=>{ last=-1; cross.style.display='none'; tip.style.display='none'; });
+    const lg=document.querySelector('.malegend');
+    if(lg)lg.addEventListener('click',e=>{
+      const s=e.target instanceof Element?e.target.closest('[data-k]'):null;
+      if(!s)return;
+      const k=s.dataset.k;
+      state.maHide[k]=!state.maHide[k];
+      s.classList.toggle('off',state.maHide[k]);
+      const ln=document.getElementById('maline-'+k);
+      if(ln)ln.style.display=state.maHide[k]?'none':'';
+    });
   }
 })();
 </script>
