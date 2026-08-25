@@ -427,7 +427,6 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
 (function(){
   const app=document.getElementById('app');
   const api=acquireVsCodeApi();
-  const AXIS_R=46;
   const fmtVol=function(v){ if(v>=10000) return (v/10000).toFixed(2)+'万手'; return Math.round(v)+'手'; };
   const fmtAmt=function(v){ if(v>=1e12) return (v/1e12).toFixed(2)+'万亿'; if(v>=1e8) return (v/1e8).toFixed(2)+'亿'; if(v>=1e4) return (v/1e4).toFixed(2)+'万'; return Math.round(v); };
   const cls=function(p,c){ return p>c?'up':p<c?'down':'flat'; };
@@ -609,29 +608,29 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   function chartSVG(m){
     const L=m.layout;
     if(!L) return '<div class="msg">暂无分时数据</div>';
-    const W=L.width,H=L.totalH;
-    const gridH=L.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+(W-AXIS_R)+'" y2="'+t.y+'"></line>').join('');
-    const gridV=L.xTicks.map(t=>'<line class="grid" x1="'+t.x+'" y1="0" x2="'+t.x+'" y2="'+H+'"></line>').join('');
-    const yLab=L.yTicks.map(t=>'<text x="'+(W-AXIS_R+4)+'" y="'+(t.y+3)+'" dominant-baseline="hanging">'+t.label+'</text>').join('');
-    const xLab=L.xTicks.map(t=>'<text x="'+t.x+'" y="'+(H-3)+'" text-anchor="middle">'+t.label+'</text>').join('');
+    const W=L.width,H=L.totalH,plotR=L.padL+L.plotW;
+    const gridH=L.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+plotR+'" y2="'+t.y+'"></line>').join('');
+    const gridV=L.xTicks.map(t=>'<line class="grid" x1="'+t.x+'" y1="0" x2="'+t.x+'" y2="'+L.volBottom+'"></line>').join('');
+    const yLab=L.yTicks.map(t=>'<text x="'+(plotR+4)+'" y="'+(t.y+3)+'" dominant-baseline="hanging">'+t.label+'</text>').join('');
+    const xLab=L.xTicks.map(t=>'<text x="'+t.x+'" y="'+(L.volBottom+11)+'" text-anchor="middle">'+t.label+'</text>').join('');
     const bars=L.bars.map(b=>'<rect class="v '+b.cls+'" x="'+b.x.toFixed(1)+'" y="'+b.y.toFixed(1)+'" width="'+b.w.toFixed(2)+'" height="'+b.h.toFixed(1)+'"></rect>').join('');
     const pxCls=cls(L.lastPrice,m.prevClose);
     const avgEl=L.avgLine?('<polyline class="avg" points="'+L.avgLine+'"></polyline>'):'';
     const lastPt=L.pts[L.pts.length-1];
-    const limitUpEl=L.limitUpY!=null&&m.limitUp!=null?('<line class="lim limUp" x1="0" y1="'+L.limitUpY.toFixed(1)+'" x2="'+(W-AXIS_R)+'" y2="'+L.limitUpY.toFixed(1)+'"></line><text class="limUp" x="0" y="'+(L.limitUpY-3).toFixed(1)+'">涨停 '+m.limitUp.toFixed(2)+'</text>'):'';
-    const limitDownEl=L.limitDownY!=null&&m.limitDown!=null?('<line class="lim limDown" x1="0" y1="'+L.limitDownY.toFixed(1)+'" x2="'+(W-AXIS_R)+'" y2="'+L.limitDownY.toFixed(1)+'"></line><text class="limDown" x="0" y="'+(L.limitDownY-3).toFixed(1)+'">跌停 '+m.limitDown.toFixed(2)+'</text>'):'';
-    const avgEndEl=L.avgLine&&lastPt.ay!=null?('<text class="avgEnd" x="'+(W-AXIS_R)+'" y="'+(lastPt.ay-4).toFixed(1)+'" text-anchor="end">均价 '+(L.lastAvg!=null?L.lastAvg.toFixed(2):'')+'</text>'):'';
+    const limitUpEl=L.limitUpY!=null&&m.limitUp!=null?('<line class="lim limUp" x1="0" y1="'+L.limitUpY.toFixed(1)+'" x2="'+plotR+'" y2="'+L.limitUpY.toFixed(1)+'"></line><text class="limUp" x="0" y="'+(L.limitUpY-3).toFixed(1)+'">涨停 '+m.limitUp.toFixed(2)+'</text>'):'';
+    const limitDownEl=L.limitDownY!=null&&m.limitDown!=null?('<line class="lim limDown" x1="0" y1="'+L.limitDownY.toFixed(1)+'" x2="'+plotR+'" y2="'+L.limitDownY.toFixed(1)+'"></line><text class="limDown" x="0" y="'+(L.limitDownY-3).toFixed(1)+'">跌停 '+m.limitDown.toFixed(2)+'</text>'):'';
+    const avgEndEl=L.avgLine&&lastPt.ay!=null?('<text class="avgEnd" x="'+plotR+'" y="'+(lastPt.ay-4).toFixed(1)+'" text-anchor="end">均价 '+(L.lastAvg!=null?L.lastAvg.toFixed(2):'')+'</text>'):'';
     return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridV+gridH+yLab+
       '<g id="vol">'+bars+'</g>'+
-      '<line class="base" x1="0" y1="'+L.baseY+'" x2="'+(W-AXIS_R)+'" y2="'+L.baseY+'"></line>'+
+      '<line class="base" x1="0" y1="'+L.baseY+'" x2="'+plotR+'" y2="'+L.baseY+'"></line>'+
       '<text x="0" y="'+(L.baseY-4)+'">昨收 '+m.prevClose.toFixed(2)+'</text>'+
       limitUpEl+limitDownEl+
       '<polyline class="price '+pxCls+'" points="'+L.priceLine+'"></polyline>'+
       '<circle class="end '+pxCls+'" cx="'+lastPt.x.toFixed(1)+'" cy="'+lastPt.y.toFixed(1)+'" r="3"></circle>'+
       avgEl+avgEndEl+
-      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+(W-AXIS_R)+'"></line><circle id="cp" class="p" r="3.5"></circle><circle id="ca" class="a" r="3"></circle></g>'+
+      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+L.volBottom+'"></line><line id="cy" x1="0" x2="'+plotR+'"></line><circle id="cp" class="p" r="3.5"></circle><circle id="ca" class="a" r="3"></circle></g>'+
       xLab+
       '</svg></div>';
   }
@@ -696,10 +695,10 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     if(!K) return '<div class="msg">加载K线…</div>';
     if(K.error) return '<div class="msg">'+K.error+'</div>';
     const suf=maSuffix(tab);
-    const W=K.width,H=K.totalH,plotW=W-K.volH;
-    const gridH=K.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+plotW+'" y2="'+t.y+'"></line>').join('');
-    const yLab=K.yTicks.map(t=>'<text x="'+(plotW+4)+'" y="'+(t.y+3)+'" dominant-baseline="hanging">'+t.label+'</text>').join('');
-    const xLab=K.xTicks.map(t=>'<text x="'+t.x+'" y="'+(H-3)+'" text-anchor="middle">'+t.label+'</text>').join('');
+    const W=K.width,H=K.totalH,plotR=K.padL+K.plotW;
+    const gridH=K.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+plotR+'" y2="'+t.y+'"></line>').join('');
+    const yLab=K.yTicks.map(t=>'<text x="'+(plotR+4)+'" y="'+(t.y+3)+'" dominant-baseline="hanging">'+t.label+'</text>').join('');
+    const xLab=K.xTicks.map(t=>'<text x="'+t.x+'" y="'+(K.volBottom+11)+'" text-anchor="middle">'+t.label+'</text>').join('');
     const candles=K.candles.map(c=>{
       const wick='<line x1="'+(c.x+c.w/2)+'" y1="'+c.wickY1+'" x2="'+(c.x+c.w/2)+'" y2="'+c.wickY2+'" class="'+c.cls+'"></line>';
       return '<g class="candle">'+wick+'<rect x="'+c.x+'" y="'+c.bodyY+'" width="'+c.w+'" height="'+Math.max(c.bodyH,1)+'" class="'+c.cls+'" rx="0"></rect></g>';
@@ -721,7 +720,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     }).join('')+'</div>';
     const lastCandle=K.candles[K.candles.length-1];
     const closeY=lastCandle?(lastCandle.cls==='up'?lastCandle.bodyY:lastCandle.bodyY+lastCandle.bodyH):0;
-    const lastPriceEl=lastCandle?('<line class="lastprice" x1="0" y1="'+closeY.toFixed(1)+'" x2="'+plotW+'" y2="'+closeY.toFixed(1)+'"></line><text x="'+plotW+'" y="'+(closeY-3).toFixed(1)+'" text-anchor="end">'+K.lastPrice.toFixed(2)+'</text>'):'';
+    const lastPriceEl=lastCandle?('<line class="lastprice" x1="0" y1="'+closeY.toFixed(1)+'" x2="'+plotR+'" y2="'+closeY.toFixed(1)+'"></line><text x="'+plotR+'" y="'+(closeY-3).toFixed(1)+'" text-anchor="end">'+K.lastPrice.toFixed(2)+'</text>'):'';
     return '<div class="chart-wrap">'+legend+'<div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridH+yLab+
@@ -729,9 +728,9 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       maEls+
       '<g id="vol">'+volBars+'</g>'+
       volMaEl+
-      '<line class="base" x1="0" y1="'+K.mainH+'" x2="'+plotW+'" y2="'+K.mainH+'"></line>'+
+      '<line class="base" x1="0" y1="'+K.mainH+'" x2="'+plotR+'" y2="'+K.mainH+'"></line>'+
       lastPriceEl+
-      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+H+'"></line><line id="cy" x1="0" x2="'+plotW+'"></line><circle id="kp" r="3"></circle></g>'+
+      '<g class="cross" id="cross" style="display:none"><line id="cx" y1="0" y2="'+K.volBottom+'"></line><line id="cy" x1="0" x2="'+plotR+'"></line><circle id="kp" r="3"></circle></g>'+
       xLab+
       '</svg></div>';
   }

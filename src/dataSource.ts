@@ -455,6 +455,12 @@ export interface MinuteChartLayout {
   totalH: number;
   mainH: number;
   volH: number;
+  /** 绘图区左起点（x 轴左侧留白） */
+  padL: number;
+  /** 绘图区宽度（不含左右轴留白），右端 x = padL + plotW */
+  plotW: number;
+  /** 成交量窗格底边 y（也是 x 轴标签带顶边） */
+  volBottom: number;
   priceLine: string;
   avgLine: string | null;
   baseY: number;
@@ -475,7 +481,10 @@ const CHART_AXIS_R = 46;
 const CHART_MAIN_H = 200;
 const CHART_VOL_H = 56;
 const CHART_GAP = 6;
-const CHART_TOTAL_H = CHART_MAIN_H + CHART_GAP + CHART_VOL_H;
+/** 成交量窗格下方的 x 轴标签带高度，避免时间文字压在量柱上。 */
+const CHART_LABEL_H = 14;
+const CHART_VOL_BOTTOM = CHART_MAIN_H + CHART_GAP + CHART_VOL_H;
+const CHART_TOTAL_H = CHART_VOL_BOTTOM + CHART_LABEL_H;
 const CHART_Y_DIVS = 4;
 
 interface ChartScale {
@@ -554,13 +563,16 @@ export function buildMinuteChart(
     : null;
   const baseY = y(prevClose);
   const vmax = Math.max(...series.map((p) => p.volume), 1);
-  const bw = plotW / series.length;
+  // 柱宽按时间槽（每分钟）取，不随 series 长度缩放：缺量分钟被跳过时若按点数摊宽度，
+  // 柱宽会大于时间槽间距，相邻柱互相重叠。柱在时间槽内居中，与价格折线顶点对齐。
+  const bw = Math.max(0.5, plotW / SESSION_TOTAL);
   const bars = series.map(
     (p): { x: number; w: number; y: number; h: number; cls: 'up' | 'down' } => {
       const h = p.volume > 0 ? (p.volume / vmax) * (CHART_VOL_H - 2) : 0;
+      const cx = CHART_PAD_L + ((sessionMinute(p.time) + 0.5) / SESSION_TOTAL) * plotW;
       return {
-        x: x(sessionMinute(p.time)),
-        w: Math.max(0.5, bw),
+        x: cx - bw / 2,
+        w: bw,
         y: CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - h),
         h,
         cls: p.price >= prevClose ? 'up' : 'down',
@@ -586,6 +598,9 @@ export function buildMinuteChart(
     totalH: CHART_TOTAL_H,
     mainH: CHART_MAIN_H,
     volH: CHART_VOL_H,
+    padL: CHART_PAD_L,
+    plotW,
+    volBottom: CHART_VOL_BOTTOM,
     priceLine,
     avgLine,
     baseY,
@@ -691,6 +706,12 @@ export interface KlineLayout {
   totalH: number;
   mainH: number;
   volH: number;
+  /** 绘图区左起点（x 轴左侧留白） */
+  padL: number;
+  /** 绘图区宽度（不含左右轴留白），右端 x = padL + plotW */
+  plotW: number;
+  /** 成交量窗格底边 y（也是 x 轴标签带顶边） */
+  volBottom: number;
   candles: KlineCandle[];
   volBars: { x: number; w: number; y: number; h: number; cls: 'up' | 'down' }[];
   xTicks: { x: number; label: string }[];
@@ -807,6 +828,9 @@ export function buildKlineLayout(klines: KlinePoint[], displayCount?: number): K
     totalH: CHART_TOTAL_H,
     mainH: CHART_MAIN_H,
     volH: CHART_VOL_H,
+    padL: CHART_PAD_L,
+    plotW,
+    volBottom: CHART_VOL_BOTTOM,
     candles,
     volBars,
     xTicks,
