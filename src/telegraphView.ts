@@ -24,6 +24,12 @@ interface DisplayItem {
   level: string;
   reading: string;
   stocks: DisplayStock[];
+  author: string;
+  subjects: string[];
+  recommend: boolean;
+  isTop: boolean;
+  bold: boolean;
+  day: string;
 }
 
 const HISTORY_RN = 20;
@@ -38,12 +44,14 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .row.lvl-a{--imp-color:#d0372d}
 .row.lvl-b{--imp-color:#ed9a2e}
 .meta{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:2px}
-.meta .time{font-variant-numeric:tabular-nums;flex:0 0 auto}
-.meta .reading{margin-left:auto;flex:0 0 auto;font-variant-numeric:tabular-nums}
-.badge{flex:0 0 auto;font-size:10px;font-weight:700;line-height:1.2;padding:1px 4px;border-radius:2px;color:#fff;background:var(--imp-color,#d0372d)}
+ .meta .time{font-variant-numeric:tabular-nums;flex:0 0 auto}
+ .meta .reading{margin-left:auto;flex:0 0 auto;font-variant-numeric:tabular-nums}
+ .badge{flex:0 0 auto;font-size:10px;font-weight:700;line-height:1.2;padding:1px 4px;border-radius:2px;color:#fff;background:var(--imp-color,#d0372d)}
 .row.lvl-b .badge{color:#ed9a2e;background:rgba(237,154,46,.16)}
-.row.imp .text{font-weight:600}
-.text{line-height:1.45;word-break:break-word}
+ .row.imp .text,.text.bold{font-weight:600}
+ .text{line-height:1.45;word-break:break-word}
+ .daysep{position:sticky;top:0;z-index:1;font-size:10px;color:var(--vscode-descriptionForeground);padding:4px 8px 3px;background:var(--vscode-sideBar-background);border-bottom:1px solid var(--vscode-panel-border)}
+ .subjects{margin-top:3px;font-size:10px;line-height:1.3;color:var(--vscode-descriptionForeground)}
 .stocks{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .chip{font-size:11px;line-height:1;padding:2px 6px;border-radius:3px;border:1px solid;font-variant-numeric:tabular-nums}
 .chip.up{color:#d0372d;border-color:rgba(208,55,45,.35);background:rgba(208,55,45,.08)}
@@ -188,6 +196,12 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
           pct: fmtPct(s.pct),
           sign: pctSign(s.pct),
         })),
+        author: row.author,
+        subjects: row.subjects,
+        recommend: row.recommend,
+        isTop: row.isTop,
+        bold: row.bold,
+        day: row.day,
       };
     });
   }
@@ -238,18 +252,28 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
   api.postMessage({type:'ready'});
   function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   let hasMore=true, loadingMore=false, pending=null;
-  function rowHtml(it){
-    const cls=(it.badge?' imp':'')+(it.level==='A'?' lvl-a':it.level==='B'?' lvl-b':'');
-    const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
-      (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
-      (it.reading?'<span class="reading">'+esc(it.reading)+'</span>':'')+'</div>';
-    const chips=it.stocks.map(function(s){
-      return '<span class="chip '+s.sign+'">'+esc(s.name)+(s.pct?' '+s.pct:'')+'</span>';
-    }).join('');
-    return '<div class="row'+cls+'">'+meta+
-      '<div class="text">'+esc(it.text)+'</div>'+
-      (chips?'<div class="stocks">'+chips+'</div>':'')+'</div>';
-  }
+   function rowHtml(it){
+     const cls=(it.badge?' imp':'')+(it.level==='A'?' lvl-a':it.level==='B'?' lvl-b':'');
+     const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
+       (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
+       (it.reading?'<span class="reading">'+esc(it.reading)+'</span>':'')+'</div>';
+     const chips=it.stocks.map(function(s){
+       return '<span class="chip '+s.sign+'">'+esc(s.name)+(s.pct?' '+s.pct:'')+'</span>';
+     }).join('');
+     const subjects=it.subjects&&it.subjects.length?'<div class="subjects">'+esc(it.subjects.join(' · '))+'</div>':'';
+     return '<div class="row'+cls+'" data-day="'+esc(it.day)+'">'+meta+
+       '<div class="text'+(it.bold?' bold':'')+'">'+esc(it.text)+'</div>'+
+       (chips?'<div class="stocks">'+chips+'</div>':'')+
+       subjects+'</div>';
+   }
+   function buildHtml(items){
+     let prevDay=null, html='';
+     for(const it of items){
+       if(it.day!==prevDay){html+='<div class="daysep">'+esc(it.day)+'</div>';prevDay=it.day;}
+       html+=rowHtml(it);
+     }
+     return html;
+   }
   function foot(){
     let f=root.querySelector('.foot');
     if(!f){f=document.createElement('div');f.className='foot';root.appendChild(f);}
@@ -260,27 +284,34 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
     if(m.error){root.innerHTML='<div class="warn">'+esc(m.error)+'</div>';return;}
     const items=m.items||[];
     if(items.length===0){root.innerHTML='<div class="msg">暂无电报</div>';return;}
-    hasMore=m.hasMore!==false;
-    root.innerHTML=items.map(rowHtml).join('')+'<div class="foot"></div>';
-    foot();
-  }
+     hasMore=m.hasMore!==false;
+     root.innerHTML=buildHtml(items)+'<div class="foot"></div>';
+     foot();
+   }
   function render(m){
     // 用户已下翻查看历史时，暂缓整列重建以免跳回顶部；回顶后再应用最新数据
     if(window.scrollY>40){pending=m;return;}
     pending=null;
     applyData(m);
   }
-  function appendMore(m){
-    loadingMore=false;
-    hasMore=m.hasMore!==false;
-    const items=m.items||[];
-    if(items.length){
-      const f=root.querySelector('.foot');
-      if(f){f.insertAdjacentHTML('beforebegin',items.map(rowHtml).join(''));}
-      else{root.insertAdjacentHTML('beforeend',items.map(rowHtml).join(''));}
-    }
-    foot();
-  }
+   function appendMore(m){
+     loadingMore=false;
+     hasMore=m.hasMore!==false;
+     const items=m.items||[];
+     if(items.length){
+       const f=root.querySelector('.foot');
+       const lastRow=root.querySelector('.row:last-of-type');
+       const prevDay=lastRow?lastRow.getAttribute('data-day'):null;
+       let prev=prevDay, html='';
+       for(const it of items){
+         if(it.day!==prev){html+='<div class="daysep">'+esc(it.day)+'</div>';prev=it.day;}
+         html+=rowHtml(it);
+       }
+       if(f){f.insertAdjacentHTML('beforebegin',html);}
+       else{root.insertAdjacentHTML('beforeend',html);}
+     }
+     foot();
+   }
   let ticking=false;
   function onScroll(){
     if(ticking)return;

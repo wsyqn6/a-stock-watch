@@ -23,6 +23,16 @@ export interface TelegraphItem {
   url: string;
   /** 毫秒时间戳 */
   ctime: number;
+  /** 署名/来源，如「新华社」，可能为空 */
+  author: string;
+  /** 主题分类名，如「半导体芯片」「盘面直播」 */
+  subjects: string[];
+  /** 推荐标记 */
+  recommend: boolean;
+  /** 置顶标记 */
+  isTop: boolean;
+  /** 加粗标记 */
+  bold: boolean;
 }
 
 const API_URL = 'https://www.cls.cn/v1/roll/get_roll_list';
@@ -67,6 +77,11 @@ export function parseTelegraphResponse(text: string): TelegraphItem[] {
       stock_list?: unknown;
       ctime?: unknown;
       is_ad?: unknown;
+      author?: unknown;
+      subjects?: unknown;
+      recommend?: unknown;
+      is_top?: unknown;
+      bold?: unknown;
     } | null;
     if (!rec || typeof rec !== 'object') {
       continue;
@@ -101,6 +116,19 @@ export function parseTelegraphResponse(text: string): TelegraphItem[] {
       stocks,
       url: `https://www.cls.cn/detail/${id}`,
       ctime,
+      author: typeof rec.author === 'string' ? rec.author : '',
+      subjects: Array.isArray(rec.subjects)
+        ? rec.subjects
+            .map((s) =>
+              s && typeof s === 'object' && typeof (s as { subject_name?: unknown }).subject_name === 'string'
+                ? (s as { subject_name: string }).subject_name
+                : '',
+            )
+            .filter(Boolean)
+        : [],
+      recommend: rec.recommend === 1,
+      isTop: rec.is_top === 1,
+      bold: rec.bold === 1,
     });
   }
   return items;
@@ -132,6 +160,12 @@ export interface TelegraphDisplayItem {
   level: string;
   reading: number;
   stocks: TelegraphStock[];
+  author: string;
+  subjects: string[];
+  recommend: boolean;
+  isTop: boolean;
+  bold: boolean;
+  day: string;
 }
 
 export function toTelegraphDisplayItem(it: TelegraphItem, now: Date = new Date()): TelegraphDisplayItem {
@@ -141,6 +175,12 @@ export function toTelegraphDisplayItem(it: TelegraphItem, now: Date = new Date()
     level: it.level,
     reading: it.reading,
     stocks: it.stocks,
+    author: it.author,
+    subjects: it.subjects,
+    recommend: it.recommend,
+    isTop: it.isTop,
+    bold: it.bold,
+    day: formatTelegraphDay(it.ctime, now),
   };
 }
 
@@ -190,4 +230,18 @@ export function formatTelegraphTime(ts: number, now: Date = new Date()): string 
     return `昨天 ${hm}`;
   }
   return `${ds.slice(4, 6)}-${ds.slice(6)} ${hm}`;
+}
+
+/** 日期分隔标签：今天 → 今天；昨天 → 昨天；更早 → MM-DD（北京时间）。 */
+export function formatTelegraphDay(ts: number, now: Date = new Date()): string {
+  const ds = beijingDateStr(new Date(ts));
+  const today = beijingDateStr(now);
+  if (ds === today) {
+    return '今天';
+  }
+  const yesterday = beijingDateStr(new Date(now.getTime() - 86_400_000));
+  if (ds === yesterday) {
+    return '昨天';
+  }
+  return `${ds.slice(4, 6)}-${ds.slice(6)}`;
 }

@@ -4,6 +4,7 @@ import {
   fmtPct,
   fmtReading,
   formatTelegraphTime,
+  formatTelegraphDay,
   parseTelegraphResponse,
   pctSign,
   toTelegraphDisplayItem,
@@ -56,6 +57,11 @@ describe('parseTelegraphResponse', () => {
       stocks: [],
       url: 'https://www.cls.cn/detail/123',
       ctime: 1700000000000,
+      author: '',
+      subjects: [],
+      recommend: false,
+      isTop: false,
+      bold: false,
     });
   });
 
@@ -164,9 +170,23 @@ describe('formatTelegraphTime', () => {
   });
 });
 
+describe('formatTelegraphDay', () => {
+  const now = new Date('2026-08-17T04:00:00Z');
+
+  it('today → 今天', () => {
+    expect(formatTelegraphDay(Date.parse('2026-08-17T02:00:00Z'), now)).toBe('今天');
+  });
+  it('yesterday → 昨天', () => {
+    expect(formatTelegraphDay(Date.parse('2026-08-16T03:00:00Z'), now)).toBe('昨天');
+  });
+  it('earlier → MM-DD', () => {
+    expect(formatTelegraphDay(Date.parse('2026-08-10T03:00:00Z'), now)).toBe('08-10');
+  });
+});
+
 describe('toTelegraphDisplayItem', () => {
   const now = new Date('2026-08-17T04:00:00Z');
-  const item = {
+    const item = {
     id: 1,
     title: '标题',
     brief: '摘要',
@@ -176,6 +196,12 @@ describe('toTelegraphDisplayItem', () => {
     stocks: [{ name: '国航远洋', pct: 4.68 }],
     url: 'https://www.cls.cn/detail/1',
     ctime: Date.parse('2026-08-17T02:00:00Z'),
+    author: '',
+    subjects: [],
+    recommend: false,
+    isTop: false,
+    bold: false,
+    day: '今天',
   };
 
   it('flattens item with time/text/level/reading/stocks', () => {
@@ -185,6 +211,12 @@ describe('toTelegraphDisplayItem', () => {
       level: 'B',
       reading: 422843,
       stocks: [{ name: '国航远洋', pct: 4.68 }],
+      author: '',
+      subjects: [],
+      recommend: false,
+      isTop: false,
+      bold: false,
+      day: '今天',
     });
   });
 
