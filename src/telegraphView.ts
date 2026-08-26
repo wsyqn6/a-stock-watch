@@ -284,7 +284,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
    function buildHtml(items){
      let prevDay=null, html='';
      for(const it of items){
-       if(it.day!==prevDay){html+='<div class="daysep">'+esc(it.day)+'</div>';prevDay=it.day;}
+        if(it.day!==prevDay&&it.day!=='今天'){html+='<div class="daysep">'+esc(it.day)+'</div>';prevDay=it.day;}
        html+=rowHtml(it);
      }
      return html;
@@ -319,7 +319,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
        const prevDay=lastRow?lastRow.getAttribute('data-day'):null;
        let prev=prevDay, html='';
        for(const it of items){
-         if(it.day!==prev){html+='<div class="daysep">'+esc(it.day)+'</div>';prev=it.day;}
+          if(it.day!==prev&&it.day!=='今天'){html+='<div class="daysep">'+esc(it.day)+'</div>';prev=it.day;}
          html+=rowHtml(it);
        }
        if(f){f.insertAdjacentHTML('beforebegin',html);}
