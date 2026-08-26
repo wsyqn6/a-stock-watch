@@ -19,6 +19,7 @@ interface DisplayStock {
 
 interface DisplayItem {
   time: string;
+  timeCls: string;
   text: string;
   badge: string;
   level: string;
@@ -46,6 +47,8 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .row.lvl-b{--imp-color:#ed9a2e}
 .meta{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:2px}
  .meta .time{font-variant-numeric:tabular-nums;flex:0 0 auto}
+ .meta .time.new{color:var(--vscode-textLink-foreground);font-weight:600}
+ .meta .time.fresh{color:var(--vscode-foreground)}
  .meta .reading{margin-left:auto;flex:0 0 auto;font-variant-numeric:tabular-nums}
  .meta .reading.warm{color:#ed9a2e}
  .meta .reading.hot{color:#d0372d;font-weight:700}
@@ -189,8 +192,10 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
   private toDisplayItems(items: TelegraphItem[]): DisplayItem[] {
     return items.map((it): DisplayItem => {
       const row = toTelegraphDisplayItem(it);
+      const ageMin = (Date.now() - it.ctime) / 60000;
       return {
         time: row.time,
+        timeCls: ageMin < 3 ? 'new' : ageMin < 15 ? 'fresh' : '',
         text: row.text,
         level: row.level,
         badge: row.level === 'A' ? '重磅' : row.level === 'B' ? '重要' : '',
@@ -259,7 +264,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
   let hasMore=true, loadingMore=false, pending=null;
    function rowHtml(it){
      const cls=(it.badge?' imp':'')+(it.level==='A'?' lvl-a':it.level==='B'?' lvl-b':'');
-     const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
+     const meta='<div class="meta"><span class="time '+it.timeCls+'">'+esc(it.time)+'</span>'+
        (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
        (it.reading?'<span class="reading '+it.readingCls+'">'+esc(it.reading)+'</span>':'')+'</div>';
      const chips=it.stocks.map(function(s){
