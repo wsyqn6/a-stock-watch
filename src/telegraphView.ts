@@ -30,6 +30,7 @@ interface DisplayItem {
   isTop: boolean;
   bold: boolean;
   day: string;
+  readingCls: string;
 }
 
 const HISTORY_RN = 20;
@@ -46,10 +47,13 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .meta{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:2px}
  .meta .time{font-variant-numeric:tabular-nums;flex:0 0 auto}
  .meta .reading{margin-left:auto;flex:0 0 auto;font-variant-numeric:tabular-nums}
+ .meta .reading.warm{color:#ed9a2e}
+ .meta .reading.hot{color:#d0372d;font-weight:700}
  .badge{flex:0 0 auto;font-size:10px;font-weight:700;line-height:1.2;padding:1px 4px;border-radius:2px;color:#fff;background:var(--imp-color,#d0372d)}
 .row.lvl-b .badge{color:#ed9a2e;background:rgba(237,154,46,.16)}
  .row.imp .text,.text.bold{font-weight:600}
  .text{line-height:1.45;word-break:break-word}
+ .text .lead{font-weight:600;color:var(--vscode-textLink-foreground)}
  .daysep{position:sticky;top:0;z-index:1;font-size:10px;color:var(--vscode-descriptionForeground);padding:4px 8px 3px;background:var(--vscode-sideBar-background);border-bottom:1px solid var(--vscode-panel-border)}
  .subjects{margin-top:3px;font-size:10px;line-height:1.3;color:var(--vscode-descriptionForeground)}
 .stocks{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
@@ -191,6 +195,7 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
         level: row.level,
         badge: row.level === 'A' ? '重磅' : row.level === 'B' ? '重要' : '',
         reading: row.reading > 0 ? fmtReading(row.reading) : '',
+        readingCls: row.reading >= 200000 ? 'hot' : row.reading >= 100000 ? 'warm' : '',
         stocks: row.stocks.map((s) => ({
           name: s.name,
           pct: fmtPct(s.pct),
@@ -256,15 +261,20 @@ export class TelegraphView implements vscode.WebviewViewProvider, vscode.Disposa
      const cls=(it.badge?' imp':'')+(it.level==='A'?' lvl-a':it.level==='B'?' lvl-b':'');
      const meta='<div class="meta"><span class="time">'+esc(it.time)+'</span>'+
        (it.badge?'<span class="badge">'+esc(it.badge)+'</span>':'')+
-       (it.reading?'<span class="reading">'+esc(it.reading)+'</span>':'')+'</div>';
+       (it.reading?'<span class="reading '+it.readingCls+'">'+esc(it.reading)+'</span>':'')+'</div>';
      const chips=it.stocks.map(function(s){
        return '<span class="chip '+s.sign+'">'+esc(s.name)+(s.pct?' '+s.pct:'')+'</span>';
      }).join('');
      const subjects=it.subjects&&it.subjects.length?'<div class="subjects">'+esc(it.subjects.join(' · '))+'</div>':'';
      return '<div class="row'+cls+'" data-day="'+esc(it.day)+'">'+meta+
-       '<div class="text'+(it.bold?' bold':'')+'">'+esc(it.text)+'</div>'+
+       '<div class="text'+(it.bold?' bold':'')+'">'+textHtml(it.text)+'</div>'+
        (chips?'<div class="stocks">'+chips+'</div>':'')+
        subjects+'</div>';
+   }
+   function textHtml(s){
+     const m=/^【(.+?)】/s.exec(s);
+     if(m){return '<span class="lead">'+esc(m[0])+'</span>'+esc(s.slice(m[0].length));}
+     return esc(s);
    }
    function buildHtml(items){
      let prevDay=null, html='';
