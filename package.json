@@ -233,6 +233,11 @@
           "maximum": 600,
           "description": "电报刷新间隔（秒），电报 24 小时滚动发布，不受交易时段限制"
         },
+        "aStockWatch.showStockNews": {
+          "type": "boolean",
+          "default": true,
+          "description": "显示相关资讯：K线大图下方展示个股新闻与公告（东方财富数据源，开启后详情面板拉取最近资讯）"
+        },
         "aStockWatch.bigMoveAlert": {
           "type": "boolean",
           "default": false,

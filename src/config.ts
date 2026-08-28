@@ -19,6 +19,9 @@ export const config = {
   showTelegraph(): boolean {
     return vscode.workspace.getConfiguration(SECTION).get<boolean>('showTelegraph', false);
   },
+  showStockNews(): boolean {
+    return vscode.workspace.getConfiguration(SECTION).get<boolean>('showStockNews', true);
+  },
   telegraphIntervalSec(): number {
     return vscode.workspace.getConfiguration(SECTION).get<number>('telegraphIntervalSec', 30);
   },
