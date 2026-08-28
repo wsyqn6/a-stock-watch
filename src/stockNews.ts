@@ -44,6 +44,7 @@ const NEWS_TTL_MS = 300_000;
 const MAX_ITEMS = 12;
 const NEWS_PAGE = 10;
 const ANN_PAGE = 12;
+const CACHE_MAX = 64;
 
 interface CacheEntry {
   ts: number;
@@ -114,10 +115,11 @@ export async function fetchStockNews(code: string): Promise<StockNewsItem[]> {
       },
     },
   };
+  const ts = Date.now();
   const params = new URLSearchParams({
-    cb: 'jQuery' + Date.now(),
+    cb: 'jQuery' + ts,
     param: JSON.stringify(inner),
-    _: String(Date.now()),
+    _: String(ts),
   });
   const res = await fetchWithTimeout(`${NEWS_URL}?${params.toString()}`, 10_000, {
     headers: { Referer: `https://so.eastmoney.com/news/s?keyword=${code}` },
@@ -195,6 +197,10 @@ export async function fetchStockAnnouncements(code: string): Promise<StockAnnIte
 
 async function loadEvents(code: string): Promise<StockEventItem[]> {
   const [news, ann] = await Promise.allSettled([fetchStockNews(code), fetchStockAnnouncements(code)]);
+  // 两源均失败才视为错误，避免把网络异常误显为「暂无相关资讯」
+  if (news.status === 'rejected' && ann.status === 'rejected') {
+    throw new Error('个股资讯加载失败');
+  }
   const items: StockEventItem[] = [];
   if (news.status === 'fulfilled') {
     for (const n of news.value) {
@@ -233,6 +239,10 @@ export function fetchStockEvents(code: string): Promise<StockEventItem[]> {
   const p = (async () => {
     try {
       const items = await loadEvents(code);
+      if (cache.size >= CACHE_MAX) {
+        const oldest = cache.keys().next().value;
+        if (oldest !== undefined) cache.delete(oldest);
+      }
       cache.set(code, { ts: Date.now(), items });
       return items;
     } finally {

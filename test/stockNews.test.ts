@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
   fetchStockAnnouncements,
+  fetchStockEvents,
   fetchStockNews,
   parseEastmoneyDate,
   stripJsonp,
@@ -103,5 +104,40 @@ describe('fetchStockAnnouncements', () => {
       'https://data.eastmoney.com/notices/detail/603501/AN202602271820099598.html',
     );
     expect(parseEastmoneyDate(items[0].date)).toBeGreaterThan(0);
+  });
+});
+
+describe('fetchStockEvents', () => {
+  it('两源均失败时抛错而非返回空', async () => {
+    // @ts-expect-error mock
+    globalThis.fetch = async () => { throw new Error('network'); };
+    await expect(fetchStockEvents('600519')).rejects.toThrow();
+  });
+
+  it('合并新闻与公告并按时间倒序', async () => {
+    const newsBody = JSON.stringify({
+      result: {
+        cmsArticleWebOld: [
+          { code: 'A1', title: '旧新闻', content: 'x', date: '2024-01-01 10:00:00', mediaName: '东方财富' },
+        ],
+      },
+    });
+    const annBody = {
+      data: {
+        list: [
+          { art_code: 'AN1', title_ch: '新公告', notice_date: '2024-06-01 00:00:00', codes: [{ stock_code: '600519' }], columns: [{ column_name: '停牌' }] },
+        ],
+      },
+    };
+    // @ts-expect-error mock
+    globalThis.fetch = async (url: string) => ({
+      ok: true,
+      text: async () => `cb(${newsBody})`,
+      json: async () => annBody,
+    });
+    const items = await fetchStockEvents('600519');
+    expect(items.length).toBe(2);
+    expect(items[0].kind).toBe('公告');
+    expect(items[1].kind).toBe('新闻');
   });
 });
