@@ -390,8 +390,8 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 @keyframes rocket-bob-down{from{transform:rotate(180deg) translateY(-1.5px)}to{transform:rotate(180deg) translateY(1.5px)}}
 body.boss .rocket,body.boss .rocket.down{animation:none}
 .head .chg{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;line-height:1.3;min-width:56px}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:3px 8px;padding:2px 12px 0;font-size:11px;color:var(--vscode-descriptionForeground)}
-.stats + .stats{padding-bottom:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:3px 8px;padding:0 12px;font-size:11px;color:var(--vscode-descriptionForeground)}
+.stats + .stats{margin-top:2px}
 .stats span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stats b{color:var(--vscode-foreground);font-weight:600;font-variant-numeric:tabular-nums}
 .chart-wrap{position:relative;margin:0 6px}
@@ -456,7 +456,6 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
 .chart .candle rect.up{fill:var(--up);stroke:var(--up)}
 .chart .candle rect.down{fill:var(--down);stroke:var(--down)}
 .msg{padding:24px;color:var(--vscode-descriptionForeground);text-align:center}
-.foot{display:flex;justify-content:space-between;padding:6px 14px 0;font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
 .related{margin:8px 12px 0;border-top:1px solid var(--vscode-editorWidget-border);padding-top:6px}
 .related h4{font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 4px;font-weight:600;letter-spacing:.3px}
 .relist{max-height:220px;overflow-y:auto}
@@ -585,16 +584,17 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       :[['成交量',fmtVol(vol)],['成交额',fmtAmt(m.amtTotal)],['换手',m.turnoverRate!=null?m.turnoverRate.toFixed(2)+'%':null],['市盈率',m.pe!=null?m.pe.toFixed(2):null]];
     return r.map(a=>'<span>'+a[0]+' <b>'+(a[1]!=null?a[1]:'—')+'</b></span>').join('');
   };
-  const footInner=function(m){
-    const parts=[];
-    if(m.circMcap!=null) parts.push('流通 '+fmtAmt(m.circMcap));
-    if(m.totalMcap!=null) parts.push('总市值 '+fmtAmt(m.totalMcap));
-    if(m.pb!=null) parts.push('市净 '+m.pb.toFixed(2));
-    if(m.volRatio!=null) parts.push('量比 '+m.volRatio.toFixed(2));
-    if(m.avgPrice!=null) parts.push('均价 '+m.avgPrice.toFixed(2));
-    if(m.limitUp!=null) parts.push('涨停 '+m.limitUp.toFixed(2));
-    if(m.limitDown!=null) parts.push('跌停 '+m.limitDown.toFixed(2));
-    return '<span>分时 '+(m.minuteDate||'—')+'</span><span>'+parts.join(' · ')+'</span>';
+  const row3Inner=function(m){
+    const r=[
+      m.circMcap!=null?['流通市值',fmtAmt(m.circMcap)]:null,
+      m.totalMcap!=null?['总市值',fmtAmt(m.totalMcap)]:null,
+      m.pb!=null?['市净',m.pb.toFixed(2)]:null,
+      m.volRatio!=null?['量比',m.volRatio.toFixed(2)]:null,
+      m.avgPrice!=null?['均价',m.avgPrice.toFixed(2)]:null,
+      m.limitUp!=null?['涨停',m.limitUp.toFixed(2)]:null,
+      m.limitDown!=null?['跌停',m.limitDown.toFixed(2)]:null,
+    ].filter(Boolean);
+    return r.map(a=>'<span>'+a[0]+' <b>'+a[1]+'</b></span>').join('');
   };
   const formatEventTime=function(ms){
     if(!ms) return '—';
@@ -628,8 +628,8 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     if(row1) row1.innerHTML=row1Inner(m,prevClose);
     const row2=document.getElementById('row2');
     if(row2) row2.innerHTML=row2Inner(m,m.volTotal);
-    const foot=document.getElementById('foot');
-    if(foot) foot.innerHTML=footInner(m);
+    const row3=document.getElementById('row3');
+    if(row3) row3.innerHTML=row3Inner(m);
     const rel=document.getElementById('related');
     if(rel) rel.innerHTML='<h4>相关资讯</h4>'+newsInner(state.news,state.newsError);
   }
@@ -656,11 +656,11 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       const head='<div class="head" id="head">'+headInner(m,pxCls,price,change,changePct)+'</div>';
       const row1='<div class="stats" id="row1">'+row1Inner(m,prevClose)+'</div>';
       const row2='<div class="stats" id="row2">'+row2Inner(m,vol)+'</div>';
+      const row3='<div class="stats" id="row3">'+row3Inner(m)+'</div>';
       const tabs='<div class="tabs">'+TABS.map(t=>'<button data-tab="'+t+'" class="'+(t===state.tab?'on':'')+'">'+t+'</button>').join('')+'</div>';
       const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
-      app.innerHTML=head+row1+row2+tabs+body
-        +'<div class="related" id="related"><h4>相关资讯</h4>'+newsInner(state.news,state.newsError)+'</div>'
-        +'<div class="foot" id="foot">'+footInner(m)+'</div>';
+      app.innerHTML=head+row1+row2+row3+tabs+body
+        +'<div class="related" id="related"><h4>相关资讯</h4>'+newsInner(state.news,state.newsError)+'</div>';
       bindTabs();
       if(state.tab==='分时') bindChart(m);
       else bindKline(state.tab);
