@@ -16,8 +16,10 @@ import {
 import { getNonce } from './util';
 import { fetchQuotesCached } from './quoteCache';
 import { config } from './config';
+import { fetchStockEvents, StockEventItem } from './stockNews';
 
 const REFRESH_INTERVAL_MS = 10_000;
+const NEWS_REFRESH_MS = 300_000;
 
 export class MinuteDetailPanel {
   public static readonly viewType = 'aStockWatch.detail';
@@ -68,6 +70,7 @@ export class MinuteDetailPanel {
   private loading = false;
   private disposed = false;
   private boss = false;
+  private newsTs = 0;
 
   private constructor(panel: vscode.WebviewPanel, symbol: string, quote?: StockQuote) {
     this.panel = panel;
@@ -76,7 +79,14 @@ export class MinuteDetailPanel {
     panel.webview.options = { enableScripts: true };
     panel.webview.html = this.html();
     panel.webview.onDidReceiveMessage((msg) => {
-      const m = msg as { type?: string; period?: KlinePeriod; force?: boolean } | null;
+      const m = msg as {
+        type?: string;
+        period?: KlinePeriod;
+        force?: boolean;
+        url?: string;
+        items?: StockEventItem[];
+        error?: string | null;
+      } | null;
       if (!m) {
         return;
       }
@@ -90,6 +100,8 @@ export class MinuteDetailPanel {
         }
       } else if (m.type === 'needKline' && m.period) {
         void this.ensureKline(m.period, m.force === true);
+      } else if (m.type === 'openUrl' && m.url) {
+        void vscode.env.openExternal(vscode.Uri.parse(m.url));
       }
     });
     this.disposeSub = panel.onDidDispose(() => this.onDispose());
@@ -131,6 +143,7 @@ export class MinuteDetailPanel {
         this.error = null;
         this.klineLayouts.clear();
         clearKlineCache(symbol);
+        this.newsTs = 0;
       }
       this.symbol = symbol;
       this.quote = quote;
@@ -155,6 +168,7 @@ export class MinuteDetailPanel {
       // onDidChangeViewState 与本次 load 交错导致的旧图污染
       void this.load(this.symbol, this.quote);
     }
+    void this.ensureNews();
   }
 
   private async refreshTick(): Promise<void> {
@@ -234,9 +248,33 @@ export class MinuteDetailPanel {
     this.push();
   }
 
-  /** 按需拉取并缓存指定周期的 K 线布局（命中缓存则不重复请求；force 跳过缓存用于定时刷新）。 */
-  private async ensureKline(period: KlinePeriod, force = false): Promise<void> {
+  /** 按需拉取个股相关资讯（新闻+公告），经独立消息下发，避免阻塞主图渲染。 */
+  private async ensureNews(force = false): Promise<void> {
     if (!this.ready) {
+      return;
+    }
+    if (!config.showStockNews()) {
+      return;
+    }
+    if (!force && Date.now() - this.newsTs < NEWS_REFRESH_MS) {
+      return;
+    }
+    this.newsTs = Date.now();
+    const code = this.symbol.slice(2);
+    try {
+      const items = await fetchStockEvents(code);
+      void this.panel.webview.postMessage({ type: 'news', items, error: null });
+    } catch (err) {
+      void this.panel.webview.postMessage({
+        type: 'news',
+        items: [],
+        error: err instanceof Error ? err.message : '加载失败',
+      });
+    }
+  }
+
+  /** 按需拉取并缓存指定周期的 K 线布局（命中缓存则不重复请求；force 跳过缓存用于定时刷新）。 */
+  private async ensureKline(period: KlinePeriod, force = false): Promise<void> {    if (!this.ready) {
       return;
     }
     if (!force && this.klineLayouts.has(period)) {
@@ -419,6 +457,18 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
 .chart .candle rect.down{fill:var(--down);stroke:var(--down)}
 .msg{padding:24px;color:var(--vscode-descriptionForeground);text-align:center}
 .foot{display:flex;justify-content:space-between;padding:6px 14px 0;font-size:10px;color:var(--vscode-descriptionForeground);opacity:.8}
+.related{margin:8px 12px 0;border-top:1px solid var(--vscode-editorWidget-border);padding-top:6px}
+.related h4{font-size:11px;color:var(--vscode-descriptionForeground);margin:0 0 4px;font-weight:600;letter-spacing:.3px}
+.relist{max-height:220px;overflow-y:auto}
+.relmsg{padding:8px 0;color:var(--vscode-descriptionForeground);font-size:12px}
+.ritem{display:flex;gap:6px;align-items:baseline;padding:4px 2px;cursor:pointer;border-radius:3px}
+.ritem:hover{background:var(--vscode-list-hoverBackground)}
+.ritem .t{font-size:11px;color:var(--vscode-descriptionForeground);font-variant-numeric:tabular-nums;white-space:nowrap;flex:none;width:38px;text-align:right}
+.ritem .tag{font-size:10px;padding:0 4px;border-radius:3px;line-height:14px;white-space:nowrap;flex:none}
+.ritem .tag.ann{color:#b07d1f;background:rgba(216,163,58,.16)}
+.ritem .tag.news{color:#4a9eff;background:rgba(74,158,255,.16)}
+.ritem .ti{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:text}
+.ritem:hover .ti{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -427,6 +477,10 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
 (function(){
   const app=document.getElementById('app');
   const api=acquireVsCodeApi();
+  app.addEventListener('click',e=>{
+    const el=(e.target instanceof HTMLElement)?e.target.closest('.ritem'):null;
+    if(el&&el.dataset.url) api.postMessage({type:'openUrl',url:el.dataset.url});
+  });
   const fmtVol=function(v){ if(v>=10000) return (v/10000).toFixed(2)+'万手'; return Math.round(v)+'手'; };
   const fmtAmt=function(v){ if(v>=1e12) return (v/1e12).toFixed(2)+'万亿'; if(v>=1e8) return (v/1e8).toFixed(2)+'亿'; if(v>=1e4) return (v/1e4).toFixed(2)+'万'; return Math.round(v); };
   const cls=function(p,c){ return p>c?'up':p<c?'down':'flat'; };
@@ -436,7 +490,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   const TABS=['分时','日K','周K','月K'];
   let last=null;
   let sym=null;
-  let state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{}};
+  let state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{},news:null,newsError:null};
   const KLINE_TTL_MS=60000;
   function requestKline(p){
     if(state.klinesPending[p])return;
@@ -455,7 +509,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     const m=e.data;
     if(!m)return;
     if(m.type==='data'){
-      if(m.symbol!==sym){ sym=m.symbol; state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{}}; }
+      if(m.symbol!==sym){ sym=m.symbol; state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{},news:null,newsError:null}; }
       if(m.klineLayouts){
         state.klines=m.klineLayouts;
         // 反序列化恢复的布局无时间戳，标记为过期以触发一次刷新
@@ -473,6 +527,10 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       }
       else { state.klines[m.period]=m.layout; state.klinesTs[m.period]=Date.now(); }
       render(last);
+    } else if(m.type==='news'){
+      state.news = m.items && m.items.length ? m.items : [];
+      state.newsError = m.error || null;
+      if(last) render(last);
     }
   });
   let lastTab=null;
@@ -538,6 +596,26 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     if(m.limitDown!=null) parts.push('跌停 '+m.limitDown.toFixed(2));
     return '<span>分时 '+(m.minuteDate||'—')+'</span><span>'+parts.join(' · ')+'</span>';
   };
+  const formatEventTime=function(ms){
+    if(!ms) return '—';
+    const d=new Date(ms);
+    const now=new Date();
+    const p=n=>String(n).padStart(2,'0');
+    if(d.toDateString()===now.toDateString()) return p(d.getHours())+':'+p(d.getMinutes());
+    return p(d.getMonth()+1)+'-'+p(d.getDate());
+  };
+  const newsInner=function(items,err){
+    if(err) return '<div class="relmsg">'+esc(err)+'</div>';
+    if(!items||!items.length) return '<div class="relmsg">暂无相关资讯</div>';
+    return items.map(it=>{
+      const cls2=it.kind==='公告'?'ann':'news';
+      return '<div class="ritem" data-url="'+esc(it.url)+'">'
+        +'<span class="t">'+formatEventTime(it.time)+'</span>'
+        +'<span class="tag '+cls2+'">'+esc(it.kind)+'</span>'
+        +'<span class="ti">'+esc(it.title)+'</span>'
+        +'</div>';
+    }).join('');
+  };
   function updateText(m){
     const price=m.price==null?0:m.price;
     const prevClose=m.prevClose==null?0:m.prevClose;
@@ -552,6 +630,8 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     if(row2) row2.innerHTML=row2Inner(m,m.volTotal);
     const foot=document.getElementById('foot');
     if(foot) foot.innerHTML=footInner(m);
+    const rel=document.getElementById('related');
+    if(rel) rel.innerHTML='<h4>相关资讯</h4>'+newsInner(state.news,state.newsError);
   }
   function render(m){
     try {
@@ -578,7 +658,9 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       const row2='<div class="stats" id="row2">'+row2Inner(m,vol)+'</div>';
       const tabs='<div class="tabs">'+TABS.map(t=>'<button data-tab="'+t+'" class="'+(t===state.tab?'on':'')+'">'+t+'</button>').join('')+'</div>';
       const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
-      app.innerHTML=head+row1+row2+tabs+body+'<div class="foot" id="foot">'+footInner(m)+'</div>';
+      app.innerHTML=head+row1+row2+tabs+body
+        +'<div class="related" id="related"><h4>相关资讯</h4>'+newsInner(state.news,state.newsError)+'</div>'
+        +'<div class="foot" id="foot">'+footInner(m)+'</div>';
       bindTabs();
       if(state.tab==='分时') bindChart(m);
       else bindKline(state.tab);
