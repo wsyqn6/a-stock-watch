@@ -104,7 +104,7 @@ export class MinuteDetailPanel {
       } else if (m.type === 'needKline' && m.period) {
         void this.ensureKline(m.period, m.force === true);
       } else if (m.type === 'openUrl' && m.url) {
-        void vscode.env.openExternal(vscode.Uri.parse(m.url));
+        openHttpUrl(m.url);
       }
     });
     this.disposeSub = panel.onDidDispose(() => this.onDispose());
@@ -914,5 +914,18 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
 </script>
 </body>
 </html>`;
+  }
+}
+
+/** 仅放行 http/https：不应让 webview 消息触发其它协议的 URI（如 command:）。 */
+function openHttpUrl(raw: string): void {
+  let uri: vscode.Uri;
+  try {
+    uri = vscode.Uri.parse(raw);
+  } catch {
+    return;
+  }
+  if (uri.scheme === 'http' || uri.scheme === 'https') {
+    void vscode.env.openExternal(uri);
   }
 }
