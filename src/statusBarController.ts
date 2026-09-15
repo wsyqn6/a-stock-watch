@@ -71,6 +71,12 @@ export class StatusBarController implements QuoteSink, vscode.Disposable {
         this.pairs.delete(sym);
       }
     }
+    // 已被移出状态栏的标的行情不再保留，避免长期驻留失效数据
+    for (const sym of [...this.quotes.keys()]) {
+      if (!wanted.has(sym)) {
+        this.quotes.delete(sym);
+      }
+    }
     symbols.forEach((sym, i) => {
       const q = this.quotes.get(sym);
       if (!q) {

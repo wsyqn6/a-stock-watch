@@ -409,7 +409,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       this.quotes = wanted.size > 0 ? all.filter((q) => wanted.has(q.symbol)) : [];
       this.indexQuotes = idxSym ? all.filter((q) => q.symbol === idxSym) : [];
       this.error =
-        wanted.size > 0 && this.quotes.length === 0 ? '未获取到行情数据' : null;
+        wanted.size > 0 && this.quotes.length === 0
+          ? `未获取到行情：${symbols.join('、')}`
+          : null;
     } catch (err) {
       this.quotes = [];
       this.error =
@@ -691,10 +693,14 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if(m.type!=='quotes')return;
     document.body.classList.toggle('boss',!!m.boss);
     renderMarket(m.market);
-    if(m.error){app.innerHTML='<div class="msg">'+esc(m.error)+'</div>';return;}
-    if(!m.items||!m.items.length){cur=[];app.innerHTML='<div class="lhead">自选股<span class="cnt">0</span></div><div class="msg">暂无自选股，点击 + 添加</div>';return;}
+    if(m.error){resetList();app.innerHTML='<div class="msg">'+esc(m.error)+'</div>';return;}
+    if(!m.items||!m.items.length){resetList();app.innerHTML='<div class="lhead">自选股<span class="cnt">0</span></div><div class="msg">暂无自选股，点击 + 添加</div>';return;}
     render(m.items,m.warn);
   });
+  // 错误/空态直接覆盖了列表 DOM，签名须一并清空：否则行情恢复后同一符号集会命中增量分支，
+  // 而查询不到任何行，列表一直停在错误态。
+  let curSig=null;
+  function resetList(){curSig=null;cur=[];}
   function render(items,warn){
     const sig=editing+'|'+items.map(it=>it.sym).join(',');
     if(curSig!==sig){
@@ -731,7 +737,6 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
     cur=items;
   }
-  let curSig=null;
   function fitNames(){
     app.querySelectorAll('.name').forEach(el=>{
       const maxW=el.parentNode.clientWidth;
