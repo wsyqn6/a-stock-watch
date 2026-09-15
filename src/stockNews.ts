@@ -3,8 +3,6 @@ import { fetchWithTimeout } from './http';
 export interface StockNewsItem {
   /** 文章标题 */
   title: string;
-  /** 摘要/正文片段 */
-  summary: string;
   /** 发布时间（毫秒时间戳，无法解析为 0） */
   time: number;
   /** 文章来源，如「东方财富」「证券时报」 */
@@ -143,7 +141,6 @@ export async function fetchStockNews(code: string): Promise<StockNewsItem[]> {
     if (!artCode) continue;
     items.push({
       title: stripEm(str(it.title)),
-      summary: stripEm(str(it.content)),
       time: parseEastmoneyDate(str(it.date)),
       source: str(it.mediaName),
       url: `http://finance.eastmoney.com/a/${artCode}.html`,

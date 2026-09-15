@@ -74,6 +74,7 @@ svg[aria-hidden="true"]{position:absolute;pointer-events:none}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px;display:flex;flex-direction:column;height:100vh}
 .row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
 .row:hover{background:var(--vscode-list-hoverBackground)}
+.row:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px}
 .row.drag{opacity:.4}
 .row.drop{border-top:2px solid var(--vscode-focusBorder)}
 .handle{cursor:grab;flex:0 0 auto;margin-right:4px;color:var(--vscode-descriptionForeground);font-size:12px;user-select:none}
@@ -119,7 +120,7 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .up{color:var(--up)}
 .down{color:var(--down)}
 .flat{color:var(--vscode-descriptionForeground)}
-.lhead,.ipo-body .dayhead,.ipo-body .sechead,.ipofold-title{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
+.ipo-body .dayhead,.ipo-body .sechead,.ipofold-title{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
 .lhead .cnt,.ipo-body .dayhead .cnt{font-weight:400;letter-spacing:0;opacity:.7}
 .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
 .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
@@ -147,7 +148,7 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .ipo-body .empty{padding:8px 10px 10px;color:var(--vscode-descriptionForeground);font-size:12px}
 .ipo-body .empty.today{color:var(--vscode-editorWarning-foreground)}
 #app{flex:0 0 auto}
-.lhead{display:flex;align-items:baseline;gap:6px;margin:8px 8px 4px;padding:0;color:var(--vscode-descriptionForeground);border-bottom:1px solid var(--vscode-panel-border)}
+.lhead{display:flex;align-items:baseline;gap:6px;margin:8px 8px 4px;padding:0;color:var(--vscode-descriptionForeground);border-bottom:1px solid var(--vscode-panel-border);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
 .market{user-select:none;flex:0 0 auto;margin:0 4px}
 .mind{display:block}
 .midx{display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer}
@@ -718,7 +719,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
         const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
         const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
-        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':'')+'>'+handle+'<div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+(it.board?'<span class="board">'+esc(it.board)+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
+        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':' role="button" tabindex="0"')+'>'+handle+'<div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+(it.board?'<span class="board">'+esc(it.board)+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
       }).join('');
       fitNames();
       bind();
@@ -780,6 +781,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       row.addEventListener('click',(e)=>{
         if(editing)return;
         if(e.target.closest('.del,.pin,.top,.handle'))return;
+        api.postMessage({type:'openDetail',symbol:cur[i].sym});
+      });
+      row.addEventListener('keydown',(e)=>{
+        if(editing||(e.key!=='Enter'&&e.key!==' '))return;
+        e.preventDefault();
         api.postMessage({type:'openDetail',symbol:cur[i].sym});
       });
       const del=row.querySelector('.del');
