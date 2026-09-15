@@ -1,7 +1,10 @@
 import { fetchQuotes, StockQuote } from './dataSource';
+import { trimCache } from './util';
 
 /** 缓存 TTL（毫秒）。低于侧边栏最小刷新间隔(3s)，保证命中窗口内的并发轮询去重，又不显著延迟数据。 */
 const DEFAULT_TTL_MS = 2000;
+/** 缓存上限：远大于自选规模，仅用于约束长期增删自选后的内存。 */
+const QUOTE_CACHE_MAX = 200;
 
 const cache = new Map<string, { q: StockQuote; ts: number }>();
 const inflight = new Map<string, Promise<StockQuote[]>>();
@@ -38,6 +41,7 @@ export async function fetchQuotesCached(
           for (const q of qs) {
             cache.set(q.symbol, { q, ts });
           }
+          trimCache(cache, QUOTE_CACHE_MAX);
           return qs;
         })
         .finally(() => {

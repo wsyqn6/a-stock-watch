@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from './http';
+import { trimCache } from './util';
 
 export interface KlinePoint {
   date: string;
@@ -45,14 +46,7 @@ export async function fetchKline(
   const text = await res.text();
   const data = parseKlineResponse(text, symbol, period);
   klineCache.set(cacheKey, { data, ts: Date.now() });
-  if (klineCache.size > KLINE_CACHE_MAX) {
-    for (const key of klineCache.keys()) {
-      if (klineCache.size <= KLINE_CACHE_MAX) {
-        break;
-      }
-      klineCache.delete(key);
-    }
-  }
+  trimCache(klineCache, KLINE_CACHE_MAX);
   return data;
 }
 
@@ -393,14 +387,7 @@ export async function getMinuteCached(symbol: string): Promise<MinuteResult> {
   try {
     const data = await fetchMinute(symbol);
     minuteCache.set(symbol, { data, ts: Date.now() });
-    if (minuteCache.size > MINUTE_CACHE_MAX) {
-      for (const k of minuteCache.keys()) {
-        if (minuteCache.size <= MINUTE_CACHE_MAX) {
-          break;
-        }
-        minuteCache.delete(k);
-      }
-    }
+    trimCache(minuteCache, MINUTE_CACHE_MAX);
     return { data, fresh: true };
   } catch (err) {
     if (hit) {
