@@ -11,12 +11,22 @@ export class RefreshManager implements vscode.Disposable {
   private timer: NodeJS.Timeout | null = null;
   private disposing = false;
   private refreshing = false;
+  private configSub: vscode.Disposable | null = null;
 
   constructor(
     private readonly sink: QuoteSink,
     private readonly view?: vscode.WebviewView,
     private readonly intervalSecOverride?: number,
-  ) {}
+  ) {
+    // 间隔取自配置时自监听，保证设置改动即时生效；固定间隔（如异动 15s）无需监听。
+    if (intervalSecOverride === undefined) {
+      this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('aStockWatch.refreshIntervalSec')) {
+          this.updateTimer();
+        }
+      });
+    }
+  }
 
   start(): void {
     this.handleVisibility();
@@ -73,5 +83,7 @@ export class RefreshManager implements vscode.Disposable {
   dispose(): void {
     this.disposing = true;
     this.stopTimer();
+    this.configSub?.dispose();
+    this.configSub = null;
   }
 }
