@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { WatchlistCore, reconcileSubset } from './watchlistCore';
+import { configWriteTarget } from './config';
 
 const CONFIG_SECTION = 'aStockWatch';
 const WATCHLIST_KEY = 'watchlist';
@@ -156,7 +157,7 @@ export class Store implements vscode.Disposable {
   private persist(key: string, symbols: string[]): void {
     void vscode.workspace
       .getConfiguration(CONFIG_SECTION)
-      .update(key, symbols, vscode.ConfigurationTarget.Global);
+      .update(key, symbols, configWriteTarget(key));
   }
 
   dispose(): void {}

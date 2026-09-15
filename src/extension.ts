@@ -5,7 +5,7 @@ import { StatusBarController } from './statusBarController';
 import { searchStock, searchEastmoney, SearchResult } from './search';
 import { MoveAlarm } from './moveAlarm';
 import { TelegraphView } from './telegraphView';
-import { config } from './config';
+import { config, configWriteTarget } from './config';
 
 interface PickItem extends vscode.QuickPickItem {
   result?: SearchResult;
@@ -221,7 +221,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const cur = config.bossMode();
       void vscode.workspace
         .getConfiguration('aStockWatch')
-        .update('bossMode', !cur, vscode.ConfigurationTarget.Global);
+        .update('bossMode', !cur, configWriteTarget('bossMode'));
     }),
   );
 

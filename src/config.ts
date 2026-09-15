@@ -41,3 +41,19 @@ export const config = {
     return vscode.workspace.getConfiguration(SECTION).get<string>('bossModeTitle', '文档');
   },
 };
+
+/**
+ * 配置写入目标：沿用该键已在使用的配置作用域。
+ * 作用域为 window 的键若被写进工作区设置，固定写 Global 会被静默遮蔽（读取仍取工作区值），
+ * 表现为增删自选、切换老板模式等操作看似成功、重载后回退。
+ */
+export function configWriteTarget(key: string): vscode.ConfigurationTarget {
+  const inspected = vscode.workspace.getConfiguration(SECTION).inspect(key);
+  if (inspected?.workspaceFolderValue !== undefined) {
+    return vscode.ConfigurationTarget.WorkspaceFolder;
+  }
+  if (inspected?.workspaceValue !== undefined) {
+    return vscode.ConfigurationTarget.Workspace;
+  }
+  return vscode.ConfigurationTarget.Global;
+}
