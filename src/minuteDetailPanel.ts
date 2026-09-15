@@ -218,7 +218,9 @@ export class MinuteDetailPanel {
     this.panel.title = this.titleFor(q);
     try {
       const { data } = await getMinuteCached(this.symbol);
-      const fp = `${data.date}|${data.points.length}|${q.prevClose}|${q.limitUp ?? ''}|${q.limitDown ?? ''}`;
+      // 末笔价量一并纳入指纹：当前分钟内价格/成交量会原地更新，只看点数会让图形滞后一分钟
+      const lastPoint = data.points[data.points.length - 1];
+      const fp = `${data.date}|${data.points.length}|${lastPoint?.price ?? ''}|${lastPoint?.vol ?? ''}|${q.prevClose}|${q.limitUp ?? ''}|${q.limitDown ?? ''}`;
       if (fp !== this.layoutFp) {
         const layout = buildMinuteChart(data, q.prevClose, {
           limitUp: q.limitUp,
