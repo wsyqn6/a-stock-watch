@@ -16,14 +16,15 @@ const ALARM_INTERVAL_SEC = 15;
  */
 export class MoveAlarm implements QuoteSink, vscode.Disposable {
   private manager: RefreshManager;
-  private state: MoveAlarmState;
+  /** 冷却状态，构造与冷却时长变化时重建。 */
+  private state = new MoveAlarmState(0);
+  private cooldownMin = 0;
   private enabled = false;
   private thresholdPct = 5;
   private boss = false;
   private configSub: vscode.Disposable;
 
   constructor(private readonly store: Store) {
-    this.state = new MoveAlarmState(30 * 60_000);
     this.applyConfig();
     this.manager = new RefreshManager(this, undefined, ALARM_INTERVAL_SEC);
     this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -40,9 +41,13 @@ export class MoveAlarm implements QuoteSink, vscode.Disposable {
   private applyConfig(): void {
     this.enabled = config.bigMoveAlert();
     this.thresholdPct = config.bigMoveAlertPct();
-    const cooldownMin = Math.max(1, config.bigMoveAlertCooldownMin());
-    this.state = new MoveAlarmState(cooldownMin * 60_000);
     this.boss = config.bossMode();
+    // 仅冷却时长变化才重建冷却记录：无关配置改动若一并重建，会让冷却失效重复通知。
+    const cooldownMin = Math.max(1, config.bigMoveAlertCooldownMin());
+    if (cooldownMin !== this.cooldownMin) {
+      this.cooldownMin = cooldownMin;
+      this.state = new MoveAlarmState(cooldownMin * 60_000);
+    }
   }
 
   getSymbols(): string[] {
