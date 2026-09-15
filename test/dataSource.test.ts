@@ -617,33 +617,33 @@ describe('buildKlineLayout', () => {
   ];
 
   it('builds one candle and volume bar per point', () => {
-    const L = buildKlineLayout(klines);
+    const L = buildKlineLayout(klines)!;
     expect(L.candles).toHaveLength(3);
     expect(L.volBars).toHaveLength(3);
     expect(L.lastPrice).toBe(10.7);
   });
 
   it('marks up candles (close >= open) as up and down otherwise', () => {
-    const L = buildKlineLayout(klines);
+    const L = buildKlineLayout(klines)!;
     expect(L.candles[0].cls).toBe('up');
     expect(L.candles[1].cls).toBe('down');
     expect(L.candles[2].cls).toBe('up');
   });
 
   it('sizes volume bars by max volume', () => {
-    const L = buildKlineLayout(klines);
+    const L = buildKlineLayout(klines)!;
     const maxBar = Math.max(...L.volBars.map((b) => b.h));
     expect(maxBar).toBeCloseTo(L.volH - 2, 1);
   });
 
   it('produces x-axis ticks and y-axis ticks', () => {
-    const L = buildKlineLayout(klines);
+    const L = buildKlineLayout(klines)!;
     expect(L.xTicks.length).toBeGreaterThan(0);
     expect(L.yTicks.length).toBe(5);
   });
 
   it('outputs null MA lines when fewer candles than period', () => {
-    const L = buildKlineLayout(klines);
+    const L = buildKlineLayout(klines)!;
     expect(L.maLines).toHaveLength(3);
     for (const ma of L.maLines) expect(ma.points).toBeNull();
     expect(L.volMaLine).toBeNull();
@@ -658,7 +658,7 @@ describe('buildKlineLayout', () => {
       low: 9.5,
       volume: 1000 + i * 10,
     }));
-    const L = buildKlineLayout(many);
+    const L = buildKlineLayout(many)!;
     expect(L.maLines[0].n).toBe(5);
     expect(L.maLines[0].points).not.toBeNull();
     expect(L.maLines[0].points!.split(' ')).toHaveLength(16);
@@ -674,7 +674,7 @@ describe('buildKlineLayout', () => {
       date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
       open: c, close: c, high: c + 1, low: c - 1, volume: 100,
     }));
-    const L = buildKlineLayout(many);
+    const L = buildKlineLayout(many)!;
     expect(L.maValues.map((m) => m.n)).toEqual([5, 10, 20]);
     for (const mv of L.maValues) expect(mv.vals).toHaveLength(25);
     expect(L.maValues[0].vals[3]).toBeNull();
@@ -693,7 +693,7 @@ describe('buildKlineLayout', () => {
       date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
       open: c, close: c, high: c + 1, low: c - 1, volume: 500 + i,
     }));
-    const L = buildKlineLayout(many, 60);
+    const L = buildKlineLayout(many, 60)!;
     expect(L.candles).toHaveLength(60);
     expect(L.lastPrice).toBe(closes[78]);
     // 可见窗口首根（全量第 19 根）即有 MA20 值：窗口外历史参与计算
@@ -704,5 +704,9 @@ describe('buildKlineLayout', () => {
     for (const mv of L.maValues) expect(mv.vals).toHaveLength(60);
     expect(L.volMaVals).toHaveLength(60);
     expect(L.xTicks.every((t) => t.label.length > 0)).toBe(true);
+  });
+
+  it('returns null for empty input instead of NaN layout', () => {
+    expect(buildKlineLayout([])).toBeNull();
   });
 });

@@ -71,6 +71,8 @@ export class MinuteDetailPanel {
   private disposed = false;
   private boss = false;
   private newsTs = 0;
+  /** webview 就绪后的首帧才回传 K 线缓存：后续刷新回传会重置 webview 的 K 线 TTL，造成重复请求。 */
+  private pushKlineCache = true;
 
   private constructor(panel: vscode.WebviewPanel, symbol: string, quote?: StockQuote) {
     this.panel = panel;
@@ -92,6 +94,7 @@ export class MinuteDetailPanel {
       }
       if (m.type === 'ready') {
         this.ready = true;
+        this.pushKlineCache = true;
         if (this.pendingLoad) {
           this.pendingLoad = false;
           void this.load();
@@ -215,7 +218,7 @@ export class MinuteDetailPanel {
     this.panel.title = this.titleFor(q);
     try {
       const { data } = await getMinuteCached(this.symbol);
-      const fp = `${data.date}|${data.points.length}|${q.prevClose}`;
+      const fp = `${data.date}|${data.points.length}|${q.prevClose}|${q.limitUp ?? ''}|${q.limitDown ?? ''}`;
       if (fp !== this.layoutFp) {
         const layout = buildMinuteChart(data, q.prevClose, {
           limitUp: q.limitUp,
@@ -273,7 +276,7 @@ export class MinuteDetailPanel {
     }
   }
 
-  /** 按需拉取并缓存指定周期的 K 线布局（命中缓存则不重复请求；force 跳过缓存用于定时刷新）。 */
+  /** 按需拉取并缓存指定周期的 K 线布局。force 仅绕过本层布局缓存，数据仍受数据源 60s 缓存约束。 */
   private async ensureKline(period: KlinePeriod, force = false): Promise<void> {    if (!this.ready) {
       return;
     }
@@ -282,11 +285,11 @@ export class MinuteDetailPanel {
     }
     try {
       const all = await fetchKline(this.symbol, KLINE_FETCH_COUNT, period);
-      if (all.length < 2) {
+      const layout = buildKlineLayout(all, KLINE_CANDLE_COUNT);
+      if (all.length < 2 || !layout) {
         void this.panel.webview.postMessage({ type: 'kline', period, error: 'K线数据不足' });
         return;
       }
-      const layout = buildKlineLayout(all, KLINE_CANDLE_COUNT);
       this.klineLayouts.set(period, layout);
       void this.panel.webview.postMessage({ type: 'kline', period, layout });
     } catch (err) {
@@ -330,13 +333,16 @@ export class MinuteDetailPanel {
       outerVol: q?.outerVol,
       innerVol: q?.innerVol,
       layout: this.layout,
-      klineLayouts: Object.fromEntries(this.klineLayouts),
+      layoutFp: this.layoutFp,
+      klineLayouts: this.pushKlineCache ? Object.fromEntries(this.klineLayouts) : undefined,
+      showNews: config.showStockNews(),
       volTotal: this.volTotal,
       amtTotal: this.amtTotal,
       minuteDate: this.minuteDate,
       error: this.error,
       boss: this.boss,
     });
+    this.pushKlineCache = false;
   }
 
   private startTimer(): void {
@@ -489,6 +495,8 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   const TABS=['分时','日K','周K','月K'];
   let last=null;
   let sym=null;
+  let lastTab=null;
+  let lastChartKey=null;
   let state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{},news:null,newsError:null};
   const KLINE_TTL_MS=60000;
   function requestKline(p){
@@ -499,19 +507,23 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   function needFetch(p){
     return !state.klines[p]||(state.klinesTs[p]!=null&&Date.now()-state.klinesTs[p]>KLINE_TTL_MS);
   }
+  // 当前 K 线 tab 无数据或已过期即补取；上次失败的周期不自动重试，切 tab 可手动重试
   function maybeRefreshKline(){
     const p=periodFor(state.tab);
-    if(p&&!state.klinesPending[p]&&state.klines[p]&&!state.klines[p].error&&needFetch(p))requestKline(p);
+    if(!p||state.klinesPending[p])return;
+    const k=state.klines[p];
+    if(k&&k.error)return;
+    if(needFetch(p))requestKline(p);
   }
   api.postMessage({type:'ready'});
   window.addEventListener('message',e=>{
     const m=e.data;
     if(!m)return;
     if(m.type==='data'){
-      if(m.symbol!==sym){ sym=m.symbol; state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{},news:null,newsError:null}; }
+      if(m.symbol!==sym){ sym=m.symbol; lastTab=null; lastChartKey=null; state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{},news:null,newsError:null}; }
       if(m.klineLayouts){
+        // 仅 webview 就绪首帧会带缓存布局；无时间戳故标记过期，交由 maybeRefreshKline 刷新
         state.klines=m.klineLayouts;
-        // 反序列化恢复的布局无时间戳，标记为过期以触发一次刷新
         for(const k in state.klines)state.klinesTs[k]=0;
       }
       last=m;
@@ -532,8 +544,6 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       if(last) render(last);
     }
   });
-  let lastTab=null;
-  let lastChartKey=null;
   const SIG={
     rocketUp:'<svg class="sig rocket" viewBox="0 0 16 16">'
       +'<path d="M8 .5 10.3 4H5.7Z" fill="currentColor"/>'
@@ -604,6 +614,10 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     if(d.toDateString()===now.toDateString()) return p(d.getHours())+':'+p(d.getMinutes());
     return p(d.getMonth()+1)+'-'+p(d.getDate());
   };
+  function relatedHtml(m){
+    if(m.showNews===false)return '';
+    return '<div class="related" id="related"><h4>相关资讯</h4>'+newsInner(state.news,state.newsError)+'</div>';
+  }
   const newsInner=function(items,err){
     if(err) return '<div class="relmsg">'+esc(err)+'</div>';
     if(!items||!items.length) return '<div class="relmsg">暂无相关资讯</div>';
@@ -643,13 +657,17 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       const changePct=m.changePct==null?0:m.changePct;
       const pxCls=cls(price,prevClose);
       const vol=m.volTotal;
-      const kp=state.tab==='分时'?null:periodFor(state.tab);
-      const chartRef=state.tab==='分时'?m.layout:state.klines[kp];
+      // 以内容指纹（而非对象引用，postMessage 每次都是新对象）判断图是否需重绘：
+      // 分时取 host 下发的 layoutFp，K 线取布局到达时间戳；资讯开关一并入 key 以便切换时重建区块。
+      const newsKey=m.showNews===false?'n0|':'n1|';
+      const chartKey=newsKey+(state.tab==='分时'
+        ?'m|'+(m.layoutFp||'')
+        :'k|'+(state.klinesTs[periodFor(state.tab)]||0));
       const sameTab=state.tab===lastTab;
-      const sameChart=chartRef===lastChartKey;
+      const sameChart=chartKey===lastChartKey;
       lastTab=state.tab;
-      lastChartKey=chartRef;
-      if(sameTab&&sameChart&&chartRef!==null&&document.getElementById('head')){
+      lastChartKey=chartKey;
+      if(sameTab&&sameChart&&document.getElementById('head')){
         updateText(m);
         return;
       }
@@ -659,8 +677,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       const row3='<div class="stats" id="row3">'+row3Inner(m)+'</div>';
       const tabs='<div class="tabs">'+TABS.map(t=>'<button data-tab="'+t+'" class="'+(t===state.tab?'on':'')+'">'+t+'</button>').join('')+'</div>';
       const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
-      app.innerHTML=head+row1+row2+row3+tabs+body
-        +'<div class="related" id="related"><h4>相关资讯</h4>'+newsInner(state.news,state.newsError)+'</div>';
+      app.innerHTML=head+row1+row2+row3+tabs+body+relatedHtml(m);
       bindTabs();
       if(state.tab==='分时') bindChart(m);
       else bindKline(state.tab);

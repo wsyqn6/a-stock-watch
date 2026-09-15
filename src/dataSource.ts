@@ -765,8 +765,14 @@ function maPolyline(
   return pts.length > 0 ? pts.join(' ') : null;
 }
 
-/** 构建 K 线布局。displayCount 指定只渲染末尾多少根，均线仍按全量历史计算。 */
-export function buildKlineLayout(klines: KlinePoint[], displayCount?: number): KlineLayout {
+/** 构建 K 线布局。displayCount 指定只渲染末尾多少根，均线仍按全量历史计算。无数据返回 null（空极值会产出 NaN 坐标）。 */
+export function buildKlineLayout(
+  klines: KlinePoint[],
+  displayCount?: number,
+): KlineLayout | null {
+  if (klines.length === 0) {
+    return null;
+  }
   const start =
     typeof displayCount === 'number' && displayCount < klines.length
       ? klines.length - displayCount
