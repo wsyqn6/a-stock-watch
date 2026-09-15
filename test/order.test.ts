@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { orderQuotes } from '../src/order';
+import { normalizeSortMode, orderQuotes } from '../src/order';
 import { StockQuote } from '../src/dataSource';
 
 function quote(symbol: string, name: string, changePct: number): StockQuote {
@@ -63,5 +63,19 @@ describe('orderQuotes', () => {
     const copy = [...quotes];
     orderQuotes(quotes, 'pctDesc', new Set());
     expect(quotes).toEqual(copy);
+  });
+});
+
+describe('normalizeSortMode', () => {
+  it('accepts every known mode', () => {
+    for (const mode of ['manual', 'code', 'name', 'pctDesc', 'pctAsc'] as const) {
+      expect(normalizeSortMode(mode)).toBe(mode);
+    }
+  });
+
+  it('falls back to manual for unknown or non-string values', () => {
+    expect(normalizeSortMode('bogus')).toBe('manual');
+    expect(normalizeSortMode(null)).toBe('manual');
+    expect(normalizeSortMode(3)).toBe('manual');
   });
 });

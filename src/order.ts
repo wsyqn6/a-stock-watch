@@ -2,6 +2,13 @@ import { StockQuote } from './dataSource';
 
 export type SortMode = 'manual' | 'code' | 'name' | 'pctDesc' | 'pctAsc';
 
+const SORT_MODES = ['manual', 'code', 'name', 'pctDesc', 'pctAsc'] as const;
+
+/** 校验外部来源（持久化状态 / webview 消息）的排序方式，非法值回退 manual。 */
+export function normalizeSortMode(value: unknown): SortMode {
+  return SORT_MODES.includes(value as SortMode) ? (value as SortMode) : 'manual';
+}
+
 function sortByMode(mode: SortMode, arr: StockQuote[]): StockQuote[] {
   const copy = [...arr];
   if (mode === 'code') {

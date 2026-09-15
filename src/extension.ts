@@ -21,9 +21,13 @@ export function activate(context: vscode.ExtensionContext): void {
   alarm.start();
   context.subscriptions.push(alarm);
 
-  const provider = new StockViewProvider(store, () => {
-    void statusBar.refreshNow();
-  });
+  const provider = new StockViewProvider(
+    store,
+    () => {
+      void statusBar.refreshNow();
+    },
+    context.globalState,
+  );
   context.subscriptions.push(provider);
 
   const applyBossMode = (): void => {

@@ -12,7 +12,7 @@ import {
 } from './dataSource';
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
-import { orderQuotes, SortMode } from './order';
+import { normalizeSortMode, orderQuotes, SortMode } from './order';
 import { MinuteDetailPanel } from './minuteDetailPanel';
 import { getNonce } from './util';
 import { fetchQuotesCached } from './quoteCache';
@@ -62,6 +62,8 @@ const INDEX_SHORT_NAMES: Record<string, string> = {
 
 const MINUTE_INTERVAL_MS = 60_000;
 const BREADTH_INTERVAL_MS = 15_000;
+/** 排序方式持久化键。 */
+const SORT_MODE_KEY = 'sortMode';
 
 const WEBVIEW_CSS = `
 :root{--up:#E15241;--down:#2EA46E}
@@ -188,7 +190,10 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly store: Store,
     private readonly onStatusBarChanged?: () => void,
-  ) {}
+    private readonly sortState?: vscode.Memento,
+  ) {
+    this.sortMode = normalizeSortMode(this.sortState?.get(SORT_MODE_KEY));
+  }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
@@ -239,9 +244,6 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
           this.store.reorder(symbols.filter((s): s is string => typeof s === 'string'));
           this.notifyChanged();
         }
-      } else if (type === 'sortMode') {
-        this.sortMode = (msg as { mode?: unknown }).mode as SortMode;
-        this.push();
       } else if (type === 'openDetail') {
         const symbol = (msg as { symbol?: unknown }).symbol;
         if (typeof symbol === 'string') {
@@ -335,7 +337,12 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 
   setSortMode(mode: SortMode): void {
-    this.sortMode = mode;
+    const next = normalizeSortMode(mode);
+    if (next === this.sortMode) {
+      return;
+    }
+    this.sortMode = next;
+    void this.sortState?.update(SORT_MODE_KEY, next);
     this.push();
   }
 
