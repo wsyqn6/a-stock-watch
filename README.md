@@ -85,15 +85,21 @@ CodeBuddy IDE / VSCodium / Cursor 等基于 Open VSX 的编辑器，扩展面板
 
 | 设置项 | 默认 | 说明 |
 | --- | --- | --- |
-| `aStockWatch.refreshIntervalSec` | `3` | 行情刷新间隔（秒），范围 1–120 |
+| `aStockWatch.refreshIntervalSec` | `3` | 行情刷新间隔（秒），范围 3–120 |
 | `aStockWatch.showMarketBar` | `true` | 显示大盘概览条（指数行情 + 迷你分时图 + 涨跌家数进度条） |
 | `aStockWatch.marketIndex` | `sh000001` | 概览条展示的指数：`sh000001` 上证 / `sz399001` 深证 / `sz399006` 创业板 |
 | `aStockWatch.watchlist` | `[]` | 自选股列表，数组顺序即显示顺序（可手动编辑） |
 | `aStockWatch.pinned` | `[]` | 置顶自选股，始终显示在最前（须为自选股成员） |
 | `aStockWatch.statusBar` | `[]` | 状态栏显示的股票代码，最多 3 只（须为自选股成员） |
+| `aStockWatch.showIpo` | `true` | 显示打新：新股/新债申购列表（关闭后不请求打新数据） |
+| `aStockWatch.showTelegraph` | `false` | 显示财联社电报视图（可见才轮询，关闭零请求） |
+| `aStockWatch.telegraphIntervalSec` | `30` | 电报刷新间隔（秒），范围 15–600 |
+| `aStockWatch.showStockNews` | `true` | K线大图下方展示个股新闻与公告 |
 | `aStockWatch.bigMoveAlert` | `false` | 大幅异动通知总开关 |
 | `aStockWatch.bigMoveAlertPct` | `5` | 大幅异动触发阈值（%），范围 1–20 |
 | `aStockWatch.bigMoveAlertCooldownMin` | `30` | 大幅异动通知冷却分钟，范围 1–240 |
+| `aStockWatch.bossMode` | `false` | 老板模式：界面全部灰显，低调不显眼 |
+| `aStockWatch.bossModeTitle` | `文档` | 老板模式下 K线/走势面板在任务栏显示的中性标题 |
 
 > 首次使用会写入默认自选股（深证成指）。
 
