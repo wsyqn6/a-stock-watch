@@ -24,6 +24,8 @@ export const KLINE_FETCH_COUNT = KLINE_CANDLE_COUNT + MA_PERIODS[2] - 1;
 
 const klineCache = new Map<string, { data: KlinePoint[]; ts: number }>();
 const KLINE_TTL_MS = 60_000;
+/** K 线缓存最大条目数（每标的每周期一条），超过则淘汰最旧，避免长时间会话无界增长。 */
+const KLINE_CACHE_MAX = 32;
 
 export async function fetchKline(
   symbol: string,
@@ -43,6 +45,14 @@ export async function fetchKline(
   const text = await res.text();
   const data = parseKlineResponse(text, symbol, period);
   klineCache.set(cacheKey, { data, ts: Date.now() });
+  if (klineCache.size > KLINE_CACHE_MAX) {
+    for (const key of klineCache.keys()) {
+      if (klineCache.size <= KLINE_CACHE_MAX) {
+        break;
+      }
+      klineCache.delete(key);
+    }
+  }
   return data;
 }
 
