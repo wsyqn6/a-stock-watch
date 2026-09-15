@@ -412,6 +412,13 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const fetchList = [
       ...new Set(idxSym ? [idxSym, ...symbols] : symbols),
     ] as string[];
+    // 已移出自选/概览的标的不再保留分时缓存（重新加回时会自动重取）
+    const keep = new Set(fetchList);
+    for (const sym of [...this.sparks.keys()]) {
+      if (!keep.has(sym)) {
+        this.sparks.delete(sym);
+      }
+    }
     try {
       const all = await fetchQuotesCached(fetchList);
       this.quotes = wanted.size > 0 ? all.filter((q) => wanted.has(q.symbol)) : [];
