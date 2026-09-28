@@ -14,7 +14,7 @@ import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 import { normalizeSortMode, orderQuotes, SortMode } from './order';
 import { MinuteDetailPanel } from './minuteDetailPanel';
-import { getNonce } from './util';
+import { fmtPrice, getNonce } from './util';
 import { fetchQuotesCached } from './quoteCache';
 import { config } from './config';
 import {
@@ -872,7 +872,7 @@ function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean, pinn
     name: q.name,
     code,
     board: boardOf(code),
-    price: q.price.toFixed(2),
+    price: fmtPrice(q.price, code, q.price),
     changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
     cls,
     spark,
@@ -886,7 +886,7 @@ function toIndexViewItem(q: StockQuote, spark: SparkData | null): IndexViewItem 
   return {
     sym: q.symbol,
     short: INDEX_SHORT_NAMES[q.symbol] ?? q.name,
-    price: q.price.toFixed(2),
+    price: fmtPrice(q.price, q.symbol, q.price),
     changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
     cls,
     spark,

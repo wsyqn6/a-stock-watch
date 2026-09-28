@@ -13,7 +13,7 @@ import {
   KLINE_CANDLE_COUNT,
   KLINE_FETCH_COUNT,
 } from './dataSource';
-import { getNonce } from './util';
+import { getNonce, priceDecimals } from './util';
 import { fetchQuotesCached } from './quoteCache';
 import { config } from './config';
 import { fetchStockEvents, StockEventItem } from './stockNews';
@@ -222,10 +222,15 @@ export class MinuteDetailPanel {
       const lastPoint = data.points[data.points.length - 1];
       const fp = `${data.date}|${data.points.length}|${lastPoint?.price ?? ''}|${lastPoint?.vol ?? ''}|${q.prevClose}|${q.limitUp ?? ''}|${q.limitDown ?? ''}`;
       if (fp !== this.layoutFp) {
-        const layout = buildMinuteChart(data, q.prevClose, {
-          limitUp: q.limitUp,
-          limitDown: q.limitDown,
-        });
+        const layout = buildMinuteChart(
+          data,
+          q.prevClose,
+          {
+            limitUp: q.limitUp,
+            limitDown: q.limitDown,
+          },
+          priceDecimals(this.symbol, this.quote?.price),
+        );
         this.layout = layout;
         this.error = layout ? null : '分时数据缺失';
         this.layoutFp = fp;
@@ -287,7 +292,7 @@ export class MinuteDetailPanel {
     }
     try {
       const all = await fetchKline(this.symbol, KLINE_FETCH_COUNT, period);
-      const layout = buildKlineLayout(all, KLINE_CANDLE_COUNT);
+      const layout = buildKlineLayout(all, KLINE_CANDLE_COUNT, priceDecimals(this.symbol, this.quote?.price));
       if (all.length < 2 || !layout) {
         void this.panel.webview.postMessage({ type: 'kline', period, error: 'K线数据不足' });
         return;
@@ -492,6 +497,9 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   const fmtAmt=function(v){ if(v>=1e12) return (v/1e12).toFixed(2)+'万亿'; if(v>=1e8) return (v/1e8).toFixed(2)+'亿'; if(v>=1e4) return (v/1e4).toFixed(2)+'万'; return Math.round(v); };
   const cls=function(p,c){ return p>c?'up':p<c?'down':'flat'; };
   const sign=function(n){ return n>=0?'+':''; };
+  // 价格小数位：基金类（沪5xx/深1xx，最小变动0.001元）3 位，股票/指数 2 位
+  let pd=2;
+  const pf=function(v){ return v.toFixed(pd); };
   const esc=function(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));};
   const hm=function(t){ return t.slice(0,2)+':'+t.slice(2); };
   const TABS=['分时','日K','周K','月K'];
@@ -522,6 +530,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     const m=e.data;
     if(!m)return;
     if(m.type==='data'){
+      if(m.code) pd=(/^[51]/.test(m.code)&&m.price!=null&&m.price<=10)?3:2;
       if(m.symbol!==sym){ sym=m.symbol; lastTab=null; lastChartKey=null; state={tab:'分时',klines:{},klinesTs:{},klinesPending:{},maHide:{},news:null,newsError:null}; }
       if(m.klineLayouts){
         // 仅 webview 就绪首帧会带缓存布局；无时间戳故标记过期，交由 maybeRefreshKline 刷新
@@ -571,8 +580,9 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     flat:'<svg class="sig" viewBox="0 0 16 16"><rect x="2" y="7" width="12" height="2.2" rx="1.1" fill="currentColor"/></svg>'
   };
   const sig=function(m){
-    if(m.price!=null&&m.limitUp!=null&&m.price>=m.limitUp-0.01) return SIG.rocketUp;
-    if(m.price!=null&&m.limitDown!=null&&m.price<=m.limitDown+0.01) return SIG.rocketDown;
+    const tick=pd===3?0.001:0.01;
+    if(m.price!=null&&m.limitUp!=null&&m.price>=m.limitUp-tick) return SIG.rocketUp;
+    if(m.price!=null&&m.limitDown!=null&&m.price<=m.limitDown+tick) return SIG.rocketDown;
     const a=Math.abs(m.changePct||0);
     if(a>=5) return SIG.bolt;
     if(a>=2) return m.changePct>0?SIG.triUp:SIG.triDown;
@@ -581,14 +591,14 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   };
   const headInner=function(m,pxCls,price,change,changePct){
     return '<span class="nm">'+esc(m.name)+'</span><span class="cd">'+esc(m.code)+'</span>'+
-      '<span class="px '+pxCls+'">'+sig(m)+' '+price.toFixed(2)+'</span>'+
-      '<span class="chg '+pxCls+'">'+sign(change)+change.toFixed(2)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span>';
+      '<span class="px '+pxCls+'">'+sig(m)+' '+pf(price)+'</span>'+
+      '<span class="chg '+pxCls+'">'+sign(change)+pf(change)+'&nbsp; '+sign(changePct)+changePct.toFixed(2)+'%</span>';
   };
   const row1Inner=function(m,prevClose){
-    return '<span>今开 <b>'+(m.open!=null?m.open.toFixed(2):'—')+'</b></span>'+
-      '<span>最高 <b>'+(m.high!=null?m.high.toFixed(2):'—')+'</b></span>'+
-      '<span>最低 <b>'+(m.low!=null?m.low.toFixed(2):'—')+'</b></span>'+
-      '<span>昨收 <b>'+prevClose.toFixed(2)+'</b></span>';
+    return '<span>今开 <b>'+(m.open!=null?pf(m.open):'—')+'</b></span>'+
+      '<span>最高 <b>'+(m.high!=null?pf(m.high):'—')+'</b></span>'+
+      '<span>最低 <b>'+(m.low!=null?pf(m.low):'—')+'</b></span>'+
+      '<span>昨收 <b>'+pf(prevClose)+'</b></span>';
   };
   const row2Inner=function(m,vol){
     const r=state.tab==='分时'
@@ -602,9 +612,9 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       m.totalMcap!=null?['总市值',fmtAmt(m.totalMcap)]:null,
       m.pb!=null?['市净',m.pb.toFixed(2)]:null,
       m.volRatio!=null?['量比',m.volRatio.toFixed(2)]:null,
-      m.avgPrice!=null?['均价',m.avgPrice.toFixed(2)]:null,
-      m.limitUp!=null?['涨停',m.limitUp.toFixed(2)]:null,
-      m.limitDown!=null?['跌停',m.limitDown.toFixed(2)]:null,
+      m.avgPrice!=null?['均价',pf(m.avgPrice)]:null,
+      m.limitUp!=null?['涨停',pf(m.limitUp)]:null,
+      m.limitDown!=null?['跌停',pf(m.limitDown)]:null,
     ].filter(Boolean);
     return r.map(a=>'<span>'+a[0]+' <b>'+a[1]+'</b></span>').join('');
   };
@@ -718,15 +728,15 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     const pxCls=cls(L.lastPrice,m.prevClose);
     const avgEl=L.avgLine?('<polyline class="avg" points="'+L.avgLine+'"></polyline>'):'';
     const lastPt=L.pts[L.pts.length-1];
-    const limitUpEl=L.limitUpY!=null&&m.limitUp!=null?('<line class="lim limUp" x1="0" y1="'+L.limitUpY.toFixed(1)+'" x2="'+plotR+'" y2="'+L.limitUpY.toFixed(1)+'"></line><text class="limUp" x="0" y="'+(L.limitUpY-3).toFixed(1)+'">涨停 '+m.limitUp.toFixed(2)+'</text>'):'';
-    const limitDownEl=L.limitDownY!=null&&m.limitDown!=null?('<line class="lim limDown" x1="0" y1="'+L.limitDownY.toFixed(1)+'" x2="'+plotR+'" y2="'+L.limitDownY.toFixed(1)+'"></line><text class="limDown" x="0" y="'+(L.limitDownY-3).toFixed(1)+'">跌停 '+m.limitDown.toFixed(2)+'</text>'):'';
-    const avgEndEl=L.avgLine&&lastPt.ay!=null?('<text class="avgEnd" x="'+plotR+'" y="'+(lastPt.ay-4).toFixed(1)+'" text-anchor="end">均价 '+(L.lastAvg!=null?L.lastAvg.toFixed(2):'')+'</text>'):'';
+    const limitUpEl=L.limitUpY!=null&&m.limitUp!=null?('<line class="lim limUp" x1="0" y1="'+L.limitUpY.toFixed(1)+'" x2="'+plotR+'" y2="'+L.limitUpY.toFixed(1)+'"></line><text class="limUp" x="0" y="'+(L.limitUpY-3).toFixed(1)+'">涨停 '+pf(m.limitUp)+'</text>'):'';
+    const limitDownEl=L.limitDownY!=null&&m.limitDown!=null?('<line class="lim limDown" x1="0" y1="'+L.limitDownY.toFixed(1)+'" x2="'+plotR+'" y2="'+L.limitDownY.toFixed(1)+'"></line><text class="limDown" x="0" y="'+(L.limitDownY-3).toFixed(1)+'">跌停 '+pf(m.limitDown)+'</text>'):'';
+    const avgEndEl=L.avgLine&&lastPt.ay!=null?('<text class="avgEnd" x="'+plotR+'" y="'+(lastPt.ay-4).toFixed(1)+'" text-anchor="end">均价 '+(L.lastAvg!=null?pf(L.lastAvg):'')+'</text>'):'';
     return '<div class="chart-wrap"><div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridV+gridH+yLab+
       '<g id="vol">'+bars+'</g>'+
       '<line class="base" x1="0" y1="'+L.baseY+'" x2="'+plotR+'" y2="'+L.baseY+'"></line>'+
-      '<text x="0" y="'+(L.baseY-4)+'">昨收 '+m.prevClose.toFixed(2)+'</text>'+
+      '<text x="0" y="'+(L.baseY-4)+'">昨收 '+pf(m.prevClose)+'</text>'+
       limitUpEl+limitDownEl+
       '<polyline class="price '+pxCls+'" points="'+L.priceLine+'"></polyline>'+
       '<circle class="end '+pxCls+'" cx="'+lastPt.x.toFixed(1)+'" cy="'+lastPt.y.toFixed(1)+'" r="3"></circle>'+
@@ -758,8 +768,8 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       const pc=cls(p.price,m.prevClose);
       tip.style.display='block';
       tip.innerHTML=
-        '<div class="row"><span>'+hm(p.time)+'</span><b class="'+pc+'">'+p.price.toFixed(2)+'</b></div>'+
-        (p.avg!=null?'<div class="row"><span>均价</span><b style="color:var(--avg)">'+p.avg.toFixed(2)+'</b></div>':'')+
+        '<div class="row"><span>'+hm(p.time)+'</span><b class="'+pc+'">'+pf(p.price)+'</b></div>'+
+        (p.avg!=null?'<div class="row"><span>均价</span><b style="color:var(--avg)">'+pf(p.avg)+'</b></div>':'')+
         '<div class="row"><span>成交量</span><b>'+fmtVol(p.volume)+'</b></div>';
       const frac=p.x/W;
       const rw=svg.parentNode.getBoundingClientRect();
@@ -816,12 +826,12 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
     });
     legendItems.push({k:'vol',label:'均量5',v:lastVal(K.volMaVals)});
     const legend='<div class="malegend">'+legendItems.map(function(it){
-      const txt=it.v==null?'—':(it.k==='vol'?fmtVol(it.v):it.v.toFixed(2));
+      const txt=it.v==null?'—':(it.k==='vol'?fmtVol(it.v):pf(it.v));
       return '<span data-k="'+it.k+'" class="'+(state.maHide[it.k]?'off':'')+'"><i class="sw lg'+(it.k==='vol'?'v':it.k)+'"></i>'+esc(it.label)+' <b>'+txt+'</b></span>';
     }).join('')+'</div>';
     const lastCandle=K.candles[K.candles.length-1];
     const closeY=lastCandle?(lastCandle.cls==='up'?lastCandle.bodyY:lastCandle.bodyY+lastCandle.bodyH):0;
-    const lastPriceEl=lastCandle?('<line class="lastprice" x1="0" y1="'+closeY.toFixed(1)+'" x2="'+plotR+'" y2="'+closeY.toFixed(1)+'"></line><text x="'+plotR+'" y="'+(closeY-3).toFixed(1)+'" text-anchor="end">'+K.lastPrice.toFixed(2)+'</text>'):'';
+    const lastPriceEl=lastCandle?('<line class="lastprice" x1="0" y1="'+closeY.toFixed(1)+'" x2="'+plotR+'" y2="'+closeY.toFixed(1)+'"></line><text x="'+plotR+'" y="'+(closeY-3).toFixed(1)+'" text-anchor="end">'+pf(K.lastPrice)+'</text>'):'';
     return '<div class="chart-wrap">'+legend+'<div class="tip" id="tip"></div>'+
       '<svg class="chart" id="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
       gridH+yLab+
@@ -855,14 +865,14 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       cy.setAttribute('y1',closeY); cy.setAttribute('y2',closeY);
       if(kp){ kp.setAttribute('cx',cxPos); kp.setAttribute('cy',closeY); kp.className.baseVal='p '+c.cls; }
       const suf=maSuffix(state.tab);
-      const fmtMa=function(v){return v==null?'—':v.toFixed(2);};
+      const fmtMa=function(v){return v==null?'—':pf(v);};
       tip.style.display='block';
       tip.innerHTML=
         '<div class="row"><span>'+c.date+'</span></div>'+
-        '<div class="row"><span>开</span><b>'+c.open.toFixed(2)+'</b></div>'+
-        '<div class="row"><span>收</span><b class="'+c.cls+'">'+c.close.toFixed(2)+'</b></div>'+
-        '<div class="row"><span>高</span><b>'+c.high.toFixed(2)+'</b></div>'+
-        '<div class="row"><span>低</span><b>'+c.low.toFixed(2)+'</b></div>'+
+        '<div class="row"><span>开</span><b>'+pf(c.open)+'</b></div>'+
+        '<div class="row"><span>收</span><b class="'+c.cls+'">'+pf(c.close)+'</b></div>'+
+        '<div class="row"><span>高</span><b>'+pf(c.high)+'</b></div>'+
+        '<div class="row"><span>低</span><b>'+pf(c.low)+'</b></div>'+
         K.maValues.map(function(mv){
           if(state.maHide[String(mv.n)])return '';
           return '<div class="row"><span>MA'+mv.n+suf+'</span><b>'+fmtMa(mv.vals[best])+'</b></div>';

@@ -491,8 +491,8 @@ interface ChartScale {
   yTicks: { y: number; label: string }[];
 }
 
-/** 构建主图纵向比例尺（含刻度标签）。reversed 控制标签方向：true=刻度顶为最大值（K线），false=底为最小值（分时）。 */
-function buildChartScale(lo: number, hi: number, reversed: boolean): ChartScale {
+/** 构建主图纵向比例尺（含刻度标签）。reversed 控制标签方向：true=刻度顶为最大值（K线），false=底为最小值（分时）。digits 控制价格标签小数位。 */
+function buildChartScale(lo: number, hi: number, reversed: boolean, digits = 2): ChartScale {
   let min = lo;
   let max = hi;
   if (max - min < 1e-9) {
@@ -507,7 +507,7 @@ function buildChartScale(lo: number, hi: number, reversed: boolean): ChartScale 
     const ratio = reversed ? (CHART_Y_DIVS - i) / CHART_Y_DIVS : i / CHART_Y_DIVS;
     return {
       y: (CHART_MAIN_H * i) / CHART_Y_DIVS,
-      label: (yMin + (yMax - yMin) * ratio).toFixed(2),
+      label: (yMin + (yMax - yMin) * ratio).toFixed(digits),
     };
   });
   return { yMin, yMax, y, yTicks };
@@ -517,6 +517,7 @@ export function buildMinuteChart(
   data: MinuteData,
   prevClose: number,
   limits?: { limitUp?: number; limitDown?: number },
+  digits = 2,
 ): MinuteChartLayout | null {
   const series = buildMinuteSeries(data);
   if (series.length < 2) {
@@ -549,7 +550,7 @@ export function buildMinuteChart(
   const limitDownIn = limitDown !== undefined && limitDown >= lo - span && limitDown <= hi + span;
   if (limitUpIn) hi = Math.max(hi, limitUp as number);
   if (limitDownIn) lo = Math.min(lo, limitDown as number);
-  const { y, yTicks } = buildChartScale(lo, hi, false);
+  const { y, yTicks } = buildChartScale(lo, hi, false, digits);
   const priceLine = series
     .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.price).toFixed(1)}`)
     .join(' ');
@@ -766,6 +767,7 @@ function maPolyline(
 export function buildKlineLayout(
   klines: KlinePoint[],
   displayCount?: number,
+  digits = 2,
 ): KlineLayout | null {
   if (klines.length === 0) {
     return null;
@@ -789,7 +791,7 @@ export function buildKlineLayout(
     if (k.high > hi) hi = k.high;
     if (k.volume > vmax) vmax = k.volume;
   }
-  const { y, yTicks } = buildChartScale(lo, hi, true);
+  const { y, yTicks } = buildChartScale(lo, hi, true, digits);
 
   // 按像素间隔稀疏刻度，避免少数据时 label 拥挤重叠。
   const labelStep = Math.max(1, Math.floor(MIN_TICK_PX / cw));

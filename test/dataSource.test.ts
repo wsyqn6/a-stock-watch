@@ -642,6 +642,15 @@ describe('buildKlineLayout', () => {
     expect(L.yTicks.length).toBe(5);
   });
 
+  it('formats y-axis price labels with the given decimals', () => {
+    for (const t of buildKlineLayout(klines)!.yTicks) {
+      expect(t.label.split('.')[1]).toHaveLength(2);
+    }
+    for (const t of buildKlineLayout(klines, undefined, 3)!.yTicks) {
+      expect(t.label.split('.')[1]).toHaveLength(3);
+    }
+  });
+
   it('outputs null MA lines when fewer candles than period', () => {
     const L = buildKlineLayout(klines)!;
     expect(L.maLines).toHaveLength(3);

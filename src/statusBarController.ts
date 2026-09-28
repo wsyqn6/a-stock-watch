@@ -3,6 +3,7 @@ import { Store } from './store';
 import { RefreshManager, QuoteSink } from './refreshManager';
 import { StockQuote } from './dataSource';
 import { fetchQuotesCached } from './quoteCache';
+import { fmtPrice } from './util';
 
 const UP = { dark: '#F07862', light: '#C73E2E' };
 const DOWN = { dark: '#2FAE75', light: '#2F8F5B' };
@@ -152,8 +153,8 @@ function tooltip(q: StockQuote): string {
   const sign = q.change >= 0 ? '+' : '';
   return [
     `${q.name} ${q.symbol.slice(2)}`,
-    `现价 ${q.price.toFixed(2)}`,
-    `昨收 ${q.prevClose.toFixed(2)}`,
-    `涨跌 ${sign}${q.change.toFixed(2)} (${sign}${q.changePct.toFixed(2)}%)`,
+    `现价 ${fmtPrice(q.price, q.symbol, q.price)}`,
+    `昨收 ${fmtPrice(q.prevClose, q.symbol, q.price)}`,
+    `涨跌 ${sign}${fmtPrice(q.change, q.symbol, q.price)} (${sign}${q.changePct.toFixed(2)}%)`,
   ].join('\n');
 }

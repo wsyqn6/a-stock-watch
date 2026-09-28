@@ -6,6 +6,7 @@ import { MinuteDetailPanel } from './minuteDetailPanel';
 import { MoveAlarmState, hitDirection } from './moveAlarmCore';
 import { fetchQuotesCached } from './quoteCache';
 import { config } from './config';
+import { fmtPrice } from './util';
 
 /** 告警后台轮询间隔：独立于侧边栏刷新频率，异动检测无需秒级，拉长降开销。 */
 const ALARM_INTERVAL_SEC = 15;
@@ -76,7 +77,7 @@ export class MoveAlarm implements QuoteSink, vscode.Disposable {
   private notify(q: StockQuote): void {
     const code = q.symbol.slice(2);
     const sign = q.changePct > 0 ? '+' : '';
-    const msg = `${q.name} ${code} 现价 ${q.price.toFixed(2)} ${sign}${q.changePct.toFixed(2)}%`;
+    const msg = `${q.name} ${code} 现价 ${fmtPrice(q.price, code, q.price)} ${sign}${q.changePct.toFixed(2)}%`;
     void vscode.window.showWarningMessage(msg, '查看走势').then((action) => {
       if (action === '查看走势') {
         MinuteDetailPanel.open(q.symbol, q);
