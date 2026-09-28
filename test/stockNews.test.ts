@@ -72,6 +72,18 @@ describe('fetchStockNews', () => {
     expect(items[1].time).toBe(1715260800 * 1000);
   });
 
+  it('按时间倒序请求新闻（sort=time），避免相关度排序返回旧文', async () => {
+    let seen = '';
+    // @ts-expect-error mock
+    globalThis.fetch = async (url: string) => {
+      seen = url;
+      return { ok: true, text: async () => 'cb({"result":{"cmsArticleWebOld":[]}})' };
+    };
+    await fetchStockNews('000858');
+    const param = JSON.parse(new URL(seen).searchParams.get('param')!);
+    expect(param.param.cmsArticleWebOld.sort).toBe('time');
+  });
+
   it('接口非 200 抛错', async () => {
     // @ts-expect-error mock
     globalThis.fetch = async () => ({ ok: false, status: 500, text: async () => '' });

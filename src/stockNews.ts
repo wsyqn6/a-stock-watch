@@ -105,7 +105,8 @@ export async function fetchStockNews(code: string): Promise<StockNewsItem[]> {
     param: {
       cmsArticleWebOld: {
         searchScope: 'default',
-        sort: 'default',
+        // 时间倒序：default 为相关度排序，冷门票会整页返回数周前的旧文
+        sort: 'time',
         pageIndex: 1,
         pageSize: NEWS_PAGE,
         preTag: '<em>',
