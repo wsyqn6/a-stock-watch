@@ -8,6 +8,7 @@ import {
   buildMinuteSeries,
   buildMinuteChart,
   buildKlineLayout,
+  minuteGapStatus,
   KlinePoint,
   sessionMinute,
   isTradingTime,
@@ -42,6 +43,24 @@ describe('parseTencentResponse', () => {
   it('parses multiple quotes', () => {
     const q = parseTencentResponse(SAMPLE + DOWN_SAMPLE);
     expect(q).toHaveLength(2);
+  });
+
+  it('parses state letter at field 40 (S=suspended, D=delisted, empty=normal)', () => {
+    const mk = (state: string) => {
+      const f = Array(52).fill('0');
+      f[1] = 'X'; f[2] = 'sz000582'; f[3] = '8.97'; f[4] = '8.97';
+      f[30] = '20261008150000'; f[31] = '0.00'; f[32] = '0.00';
+      f[33] = '8.97'; f[34] = '8.97'; f[40] = state;
+      return 'v_sz000582="' + f.join('~') + '";';
+    };
+    expect(parseTencentResponse(mk('S'))[0].state).toBe('S');
+    expect(parseTencentResponse(mk('D'))[0].state).toBe('D');
+    expect(parseTencentResponse(mk(''))[0].state).toBeUndefined();
+    // 非状态字母（异常值）不采纳
+    expect(parseTencentResponse(mk('6.35'))[0].state).toBeUndefined();
+    // 字段不足 41 个时安全缺省
+    const short = 'v_sz000582="' + Array(40).fill('0').join('~') + '";';
+    expect(parseTencentResponse(short)[0].state).toBeUndefined();
   });
 
   it('parses valuation metrics: turnover, PE, PB and market caps', () => {
@@ -332,6 +351,21 @@ describe('minute series & chart', () => {
     expect(d.points[0].vol).toBeUndefined();
   });
 
+  it('parses 3-field rows with volume but no amount (bj style)', () => {
+    const d = parseMinuteResponse(minuteJSON(['0930 10.00 100', '0931 10.10 200']), SYM);
+    expect(d.points[0]).toEqual({ time: '0930', price: 10.0, vol: 100 });
+    expect(d.points[0].amt).toBeUndefined();
+    const s = buildMinuteSeries(d);
+    expect(s).toHaveLength(2);
+    expect(s[0].avg).toBeNull();
+    expect(s[0].volume).toBe(0);
+    expect(s[1].volume).toBe(100);
+    const c = buildMinuteChart(d, 10.0);
+    expect(c).not.toBeNull();
+    expect(c!.avgLine).toBeNull();
+    expect(c!.lastAvg).toBeNull();
+  });
+
   it('computes cumulative average price and per-minute volume', () => {
     const s = buildMinuteSeries(parseMinuteResponse(minuteJSON(rows), SYM));
     expect(s).toHaveLength(4);
@@ -441,6 +475,47 @@ describe('minute series & chart', () => {
   it('returns null for series with no volume data', () => {
     const d = parseMinuteResponse(minuteJSON(['0930 10.00', '0931 10.10']), SYM);
     expect(buildMinuteChart(d, 10)).toBeNull();
+  });
+});
+
+describe('minuteGapStatus', () => {
+  const SYM = 'sz000582';
+  const wrap = (rows: string[]) =>
+    JSON.stringify({ data: { [SYM]: { data: { date: '20261008', data: rows } } } });
+  const status = (rows: string[]) => minuteGapStatus(parseMinuteResponse(wrap(rows), SYM));
+
+  it('flags suspended stock (all zero volume) as no-trade', () => {
+    expect(status(['0930 8.97 0 0.00', '0931 8.97 0 0.00', '0932 8.97 0 0.00'])).toBe('no-trade');
+  });
+
+  it('flags garbage or single rows as no-data', () => {
+    expect(status(['  0'])).toBe('no-data');
+    expect(status([])).toBe('no-data');
+    expect(status(['0930 8.97 100 89700.00'])).toBe('no-data');
+  });
+
+  it('returns ok for normal trading rows', () => {
+    expect(status(['0930 8.97 100 89700.00', '0931 8.98 200 179600.00'])).toBe('ok');
+  });
+
+  it('returns ok for bj 3-field rows with volume', () => {
+    expect(status(['0930 16.34 33', '0931 16.33 63'])).toBe('ok');
+  });
+
+  it('flags price-only rows (no volume fields) as no-trade', () => {
+    expect(status(['0930 8.97', '0931 8.97'])).toBe('no-trade');
+  });
+
+  it('prefers quote state: S=suspended, D=delisted', () => {
+    const rows = ['0930 8.97 0 0.00', '0931 8.97 0 0.00'];
+    const d = parseMinuteResponse(wrap(rows), SYM);
+    expect(minuteGapStatus(d, 'S')).toBe('suspended');
+    expect(minuteGapStatus(d, 'D')).toBe('delisted');
+    // 状态优先于数据特征：退市股即使有成交行也报 delisted
+    expect(minuteGapStatus(parseMinuteResponse(wrap(['0930 8.97 100 89700.00', '0931 8.98 200 179600.00']), SYM), 'D')).toBe('delisted');
+    // 正常交易状态不改变判定
+    expect(minuteGapStatus(d, undefined)).toBe('no-trade');
+    expect(minuteGapStatus(d, '')).toBe('no-trade');
   });
 });
 

@@ -200,6 +200,8 @@ export interface StockQuote {
   outerVol?: number;
   /** 内盘（手） */
   innerVol?: number;
+  /** 数据源状态字母（腾讯字段40）：S=停牌 D=退市；正常交易为空/缺省 */
+  state?: string;
 }
 
 const TENCENT_URL = 'https://qt.gtimg.cn/q=';
@@ -227,6 +229,8 @@ const F = {
   limitUp: 47,
   limitDown: 48,
   volRatio: 49,
+  /** 状态字母：空=正常 S=停牌 D=退市 */
+  state: 40,
   avgPrice: 51,
 };
 const MIN_FIELDS = F.high; // 至少含到最高价字段（索引33）即可解析，high/low 可能缺失
@@ -305,6 +309,8 @@ export function parseTencentResponse(text: string): StockQuote[] {
       avgPrice: toFinitePos(fields[F.avgPrice]),
       outerVol: toFinitePos(fields[F.outerVol]),
       innerVol: toFinitePos(fields[F.innerVol]),
+      // 字段40 可能缺省（MIN_FIELDS=33），仅接受已知状态字母
+      state: fields.length > F.state && /^[A-Z]$/.test(fields[F.state]) ? fields[F.state] : undefined,
     });
   }
   return quotes;
@@ -366,11 +372,14 @@ export function parseMinuteResponse(text: string, symbol: string): MinuteData {
   const date = node?.data?.date ?? '';
   const points: MinutePoint[] = [];
   for (const row of node?.data?.data ?? []) {
-    const m = /^(\d{4})\s+([\d.]+)(?:\s+(\d+)\s+([\d.]+))?/.exec(row.trim());
+    // vol/amt 各自可选：北交所仅 3 字段（time price vol），无成交额
+    const m = /^(\d{4})\s+([\d.]+)(?:\s+(\d+))?(?:\s+([\d.]+))?/.exec(row.trim());
     if (m) {
       const point: MinutePoint = { time: m[1], price: Number(m[2]) };
-      if (m[3] !== undefined && m[4] !== undefined) {
+      if (m[3] !== undefined) {
         point.vol = Number(m[3]);
+      }
+      if (m[4] !== undefined) {
         point.amt = Number(m[4]);
       }
       points.push(point);
@@ -378,6 +387,40 @@ export function parseMinuteResponse(text: string, symbol: string): MinuteData {
   }
   return { date, points };
 }
+
+/** 分时数据可用性：正常/停牌/退市/零成交/无数据。 */
+export type MinuteGap = 'ok' | 'suspended' | 'delisted' | 'no-trade' | 'no-data';
+
+/**
+ * 判断分时数据缺口类型。
+ * 优先用行情状态字段（腾讯 f40：S=停牌 D=退市）区分停牌与零成交；
+ * 无状态信息时退回数据特征：
+ * - no-data：可解析价格点不足 2 个（接口无数据/垃圾行）
+ * - no-trade：有价格点但有效成交点不足 2 个（零成交/停牌兜底）
+ * @param state 行情状态字母（StockQuote.state）
+ */
+export function minuteGapStatus(data: MinuteData, state?: string): MinuteGap {
+  if (state === 'D') {
+    return 'delisted';
+  }
+  if (state === 'S') {
+    return 'suspended';
+  }
+  if (data.points.length < 2) {
+    return 'no-data';
+  }
+  const traded = data.points.filter((p) => p.vol !== undefined && p.vol > 0).length;
+  return traded < 2 ? 'no-trade' : 'ok';
+}
+
+/** 各缺口状态的展示文案（详情图区与侧栏迷你图区共用）。 */
+export const GAP_TEXT: Record<MinuteGap, string> = {
+  ok: '',
+  suspended: '停牌',
+  delisted: '已退市',
+  'no-trade': '无成交',
+  'no-data': '分时数据缺失',
+};
 
 export async function getMinuteCached(symbol: string): Promise<MinuteResult> {
   const hit = minuteCache.get(symbol);
@@ -427,7 +470,8 @@ export function buildSpark(data: MinuteData, prevClose: number): SparkData | nul
 export interface MinuteDetailPoint {
   time: string;
   price: number;
-  avg: number;
+  /** 累计均价；数据源缺成交额时为 null（如北交所 3 字段行） */
+  avg: number | null;
   volume: number;
 }
 
@@ -436,13 +480,13 @@ export function buildMinuteSeries(data: MinuteData): MinuteDetailPoint[] {
   let lastVol = 0;
   let haveLast = false;
   for (const p of data.points) {
-    if (p.vol === undefined || p.amt === undefined || p.vol <= 0) {
+    if (p.vol === undefined || p.vol <= 0) {
       continue;
     }
     const volume = haveLast ? Math.max(0, p.vol - lastVol) : 0;
     lastVol = p.vol;
     haveLast = true;
-    out.push({ time: p.time, price: p.price, avg: p.amt / (p.vol * 100), volume });
+    out.push({ time: p.time, price: p.price, avg: p.amt != null ? p.amt / (p.vol * 100) : null, volume });
   }
   return out;
 }
@@ -528,15 +572,16 @@ export function buildMinuteChart(
   const priceMin = Math.min(...series.map((p) => p.price));
   const priceMax = Math.max(...series.map((p) => p.price));
   const slack = Math.max(priceMax - priceMin, priceMin * 0.5, 1e-6);
+  // 均价需全量有效（含单位合理）才绘制，缺成交额的点使 avg 线整体隐藏
   const avgUsable = series.every(
-    (p) => p.avg >= priceMin - slack && p.avg <= priceMax + slack,
+    (p) => p.avg !== null && p.avg >= priceMin - slack && p.avg <= priceMax + slack,
   );
   let lo = prevClose;
   let hi = prevClose;
   for (const p of series) {
     lo = Math.min(lo, p.price);
     hi = Math.max(hi, p.price);
-    if (avgUsable) {
+    if (avgUsable && p.avg !== null) {
       lo = Math.min(lo, p.avg);
       hi = Math.max(hi, p.avg);
     }
@@ -556,7 +601,7 @@ export function buildMinuteChart(
     .join(' ');
   const avgLine = avgUsable
     ? series
-        .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.avg).toFixed(1)}`)
+        .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.avg as number).toFixed(1)}`)
         .join(' ')
     : null;
   const baseY = y(prevClose);
@@ -583,7 +628,7 @@ export function buildMinuteChart(
     return {
       x: sx,
       y: y(p.price),
-      ay: avgUsable ? y(p.avg) : null,
+      ay: avgUsable && p.avg !== null ? y(p.avg) : null,
       price: p.price,
       avg: avgUsable ? p.avg : null,
       volume: p.volume,

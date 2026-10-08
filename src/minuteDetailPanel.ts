@@ -10,6 +10,8 @@ import {
   buildKlineLayout,
   clearKlineCache,
   isTradingTime,
+  minuteGapStatus,
+  GAP_TEXT,
   KLINE_CANDLE_COUNT,
   KLINE_FETCH_COUNT,
 } from './dataSource';
@@ -64,6 +66,8 @@ export class MinuteDetailPanel {
   private amtTotal = 0;
   private klineLayouts = new Map<KlinePeriod, KlineLayout>();
   private error: string | null = null;
+  /** 仅图表区的提示（停牌/退市/零成交/缺失），不吞头部与资讯 */
+  private chartError: string | null = null;
   private ready = false;
   private pendingLoad = false;
   private pendingSymbol = false;
@@ -144,6 +148,7 @@ export class MinuteDetailPanel {
         this.layout = null;
         this.layoutFp = '';
         this.error = null;
+        this.chartError = null;
         this.klineLayouts.clear();
         clearKlineCache(symbol);
         this.newsTs = 0;
@@ -215,6 +220,7 @@ export class MinuteDetailPanel {
       this.push();
       return;
     }
+    this.error = null;
     this.panel.title = this.titleFor(q);
     try {
       const { data } = await getMinuteCached(this.symbol);
@@ -231,8 +237,9 @@ export class MinuteDetailPanel {
           },
           priceDecimals(this.symbol, this.quote?.price),
         );
+        // 出图失败仅作图表区提示（停牌/退市/零成交/缺失），头部与资讯照常渲染
         this.layout = layout;
-        this.error = layout ? null : '分时数据缺失';
+        this.chartError = layout ? null : GAP_TEXT[minuteGapStatus(data, q.state)];
         this.layoutFp = fp;
       }
       let vol = 0;
@@ -250,9 +257,9 @@ export class MinuteDetailPanel {
       this.minuteDate = data.date;
     } catch (err) {
       // 同标的刷新失败时保留上一张可用图；切换标的时 layout 已被 load 清空，
-      // 走到这里必然置错误提示，避免旧图残留
+      // 走到这里必然给出提示（图表区），避免旧图残留
       if (this.layout === null) {
-        this.error = err instanceof Error ? err.message : '加载失败';
+        this.chartError = err instanceof Error ? err.message : '加载失败';
       }
     }
     this.push();
@@ -347,6 +354,7 @@ export class MinuteDetailPanel {
       amtTotal: this.amtTotal,
       minuteDate: this.minuteDate,
       error: this.error,
+      chartError: this.chartError,
       boss: this.boss,
     });
     this.pushKlineCache = false;
@@ -673,7 +681,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       // 分时取 host 下发的 layoutFp，K 线取布局到达时间戳；资讯开关一并入 key 以便切换时重建区块。
       const newsKey=m.showNews===false?'n0|':'n1|';
       const chartKey=newsKey+(state.tab==='分时'
-        ?'m|'+(m.layoutFp||'')
+        ?'m|'+(m.layoutFp||'')+'|'+(m.chartError||'')
         :'k|'+(state.klinesTs[periodFor(state.tab)]||0));
       const sameTab=state.tab===lastTab;
       const sameChart=chartKey===lastChartKey;
@@ -691,8 +699,8 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
       const body=state.tab==='分时'?chartSVG(m):klineSVG(state.tab);
       app.innerHTML=head+row1+row2+row3+tabs+body+relatedHtml(m);
       bindTabs();
-      if(state.tab==='分时') bindChart(m);
-      else bindKline(state.tab);
+      if(state.tab==='分时'&&m.layout) bindChart(m);
+      else if(state.tab!=='分时') bindKline(state.tab);
     } catch (e) {
       app.innerHTML='<div class="msg">渲染失败: '+(e&&e.message?e.message:String(e))+'</div>';
       console.error('AStockDetail render error', e);
@@ -718,7 +726,7 @@ body.boss .rocket,body.boss .rocket.down{animation:none}
   }
   function chartSVG(m){
     const L=m.layout;
-    if(!L) return '<div class="msg">暂无分时数据</div>';
+    if(!L) return '<div class="msg">'+esc(m.chartError||'暂无分时数据')+'</div>';
     const W=L.width,H=L.totalH,plotR=L.padL+L.plotW;
     const gridH=L.yTicks.map(t=>'<line class="grid" x1="0" y1="'+t.y+'" x2="'+plotR+'" y2="'+t.y+'"></line>').join('');
     const gridV=L.xTicks.map(t=>'<line class="grid" x1="'+t.x+'" y1="0" x2="'+t.x+'" y2="'+L.volBottom+'"></line>').join('');

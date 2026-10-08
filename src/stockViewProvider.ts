@@ -4,6 +4,9 @@ import {
   fetchMarketBreadth,
   getMinuteCached,
   buildSpark,
+  minuteGapStatus,
+  GAP_TEXT,
+  MinuteGap,
   SparkData,
   isTradingTime,
   MarketBreadth,
@@ -34,6 +37,8 @@ export interface QuoteViewItem {
   changePct: string;
   cls: 'up' | 'down' | 'flat';
   spark: SparkData | null;
+  /** 分时数据缺口：ok 时仅画迷你图，其余在迷你图区显示提示文字 */
+  gap: MinuteGap;
   inBar: boolean;
   pinned: boolean;
 }
@@ -45,6 +50,7 @@ export interface IndexViewItem {
   changePct: string;
   cls: 'up' | 'down' | 'flat';
   spark: SparkData | null;
+  gap: MinuteGap;
 }
 
 export interface MarketPayload {
@@ -88,6 +94,9 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .price{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
 .pct{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
 .spark{flex:1;min-width:0;height:30px;display:block;margin:0 8px;transition:opacity .12s ease}
+.spark.hide{display:none}
+.gapmsg{display:none;flex:1;min-width:0;height:30px;align-items:center;justify-content:center;color:var(--vscode-descriptionForeground);font-size:11px;opacity:.75;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gapmsg.on{display:flex}
 .row:hover .spark polyline:not(.glow){stroke-width:1.6}
 @media (prefers-reduced-motion:reduce){.row,.spark{transition:none}}
 .spark polyline{fill:none;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
@@ -179,6 +188,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private breadth: MarketBreadth | null = null;
   private lastBreadthAt = 0;
   private sparks = new Map<string, SparkData | null>();
+  /** 与 sparks 同步维护的分时数据缺口状态 */
+  private gaps = new Map<string, MinuteGap>();
   private error: string | null = null;
   private warn: string | null = null;
   private sortMode: SortMode = 'manual';
@@ -298,12 +309,16 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     this.refreshingMinute = true;
     try {
       const pcMap = new Map(
-        [...this.quotes, ...this.indexQuotes].map((q) => [q.symbol, q.prevClose]),
+        [...this.quotes, ...this.indexQuotes].map((q) => [q.symbol, q.prevClose] as const),
+      );
+      const stateMap = new Map(
+        [...this.quotes, ...this.indexQuotes].map((q) => [q.symbol, q.state] as const),
       );
       if (symbols.some((s) => !pcMap.has(s))) {
         try {
           for (const q of await fetchQuotesCached(symbols)) {
             pcMap.set(q.symbol, q.prevClose);
+            stateMap.set(q.symbol, q.state);
           }
         } catch {
           // keep whatever prevClose we already have
@@ -316,15 +331,19 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
             const { data, fresh } = await getMinuteCached(sym);
             const pc = pcMap.get(sym);
             const spark = pc !== undefined ? buildSpark(data, pc) : null;
+            const gap = minuteGapStatus(data, stateMap.get(sym));
             if (fresh) {
               this.sparks.set(sym, spark);
+              this.gaps.set(sym, gap);
               dirty = true;
             } else if (!this.sparks.has(sym)) {
               this.sparks.set(sym, spark);
+              this.gaps.set(sym, gap);
               dirty = true;
             }
           } catch {
             this.sparks.set(sym, null);
+            this.gaps.set(sym, 'no-data');
             dirty = true;
           }
         }),
@@ -417,6 +436,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     for (const sym of [...this.sparks.keys()]) {
       if (!keep.has(sym)) {
         this.sparks.delete(sym);
+        this.gaps.delete(sym);
       }
     }
     try {
@@ -532,13 +552,19 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     }
     const pinned = new Set(this.store.getPinned());
     const items = this.ordered().map((q) =>
-      toViewItem(q, this.sparks.get(q.symbol) ?? null, this.store.statusBarHas(q.symbol), pinned.has(q.symbol)),
+      toViewItem(
+        q,
+        this.sparks.get(q.symbol) ?? null,
+        this.gaps.get(q.symbol) ?? 'ok',
+        this.store.statusBarHas(q.symbol),
+        pinned.has(q.symbol),
+      ),
     );
     const showMarket = config.showMarketBar();
     const market: MarketPayload = {
       show: showMarket,
       indices: this.indexQuotes.map((q) =>
-        toIndexViewItem(q, this.sparks.get(q.symbol) ?? null),
+        toIndexViewItem(q, this.sparks.get(q.symbol) ?? null, this.gaps.get(q.symbol) ?? 'ok'),
       ),
       breadth: this.breadth,
     };
@@ -583,12 +609,24 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   const REFRESH_SVG='<svg viewBox="0 0 16 16" width="12" height="12"><path d="M13.65 2.35A6.96 6.96 0 0 0 8.5 1a6.5 6.5 0 1 0 6.34 8.5h-1.7A5 5 0 1 1 8.5 3c1.4 0 2.68.55 3.62 1.47L9.5 7h5V2l-.85.85z" fill="currentColor"/></svg>';
   api.postMessage({type:'ready'});
   function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  const GAP_TEXT=${JSON.stringify(GAP_TEXT)};
+  /** 分时有缺口时用提示文字占据迷你图区域，ok 时还原迷你图。 */
+  function applyGap(box,gap){
+    const msg=box.querySelector('.gapmsg');
+    const svg=box.querySelector('.spark');
+    if(!msg||!svg)return;
+    const text=gap&&gap!=='ok'?GAP_TEXT[gap]||GAP_TEXT['no-data']:null;
+    msg.textContent=text||'';
+    msg.classList.toggle('on',!!text);
+    svg.classList.toggle('hide',!!text);
+  }
   let editing=false;
   let cur=[];
   let lastMkSig='';
   function idxHtml(it){
     return '<div class="midx" data-ix="'+it.sym+'" title="查看 '+it.short+' 走势">'+
       '<span class="iname">'+it.short+'</span>'+
+      '<span class="gapmsg"></span>'+
       '<svg class="spark flat" viewBox="0 0 100 18" preserveAspectRatio="none"></svg>'+
       '<span class="right"><span class="ipct"></span><span class="iprice"></span></span></div>';
   }
@@ -611,6 +649,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       r.textContent=it.price;
       const svg=el.querySelector('.spark');
       updateSpark(svg,it.spark);
+      applyGap(el,it.gap);
     });
     const b=m.breadth;
     if(!b)return;
@@ -726,10 +765,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
         const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
         const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
-        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':' role="button" tabindex="0"')+'>'+handle+'<div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+(it.board?'<span class="board">'+esc(it.board)+'</span>':'')+'</span></div>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
+        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':' role="button" tabindex="0"')+'>'+handle+'<div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+(it.board?'<span class="board">'+esc(it.board)+'</span>':'')+'</span></div><span class="gapmsg"></span>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
       }).join('');
       fitNames();
       bind();
+      app.querySelectorAll('.row').forEach((row,i)=>applyGap(row,items[i]&&items[i].gap));
     } else {
       let bannerEl=app.querySelector('.warn');
       if(warn&&!bannerEl){
@@ -748,6 +788,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         if(pct){pct.textContent=it.changePct;pct.className='pct '+it.cls;}
         if(price){price.textContent=it.price;price.className='price';}
         updateSpark(row.querySelector('.spark'),it.spark);
+        applyGap(row,it.gap);
       });
     }
     cur=items;
@@ -864,7 +905,13 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
 }
 
-function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean, pinned: boolean): QuoteViewItem {
+function toViewItem(
+  q: StockQuote,
+  spark: SparkData | null,
+  gap: MinuteGap,
+  inBar: boolean,
+  pinned: boolean,
+): QuoteViewItem {
   const cls: QuoteViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
   const code = q.symbol.slice(2);
   return {
@@ -876,12 +923,13 @@ function toViewItem(q: StockQuote, spark: SparkData | null, inBar: boolean, pinn
     changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
     cls,
     spark,
+    gap,
     inBar,
     pinned,
   };
 }
 
-function toIndexViewItem(q: StockQuote, spark: SparkData | null): IndexViewItem {
+function toIndexViewItem(q: StockQuote, spark: SparkData | null, gap: MinuteGap): IndexViewItem {
   const cls: IndexViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
   return {
     sym: q.symbol,
@@ -890,5 +938,6 @@ function toIndexViewItem(q: StockQuote, spark: SparkData | null): IndexViewItem 
     changePct: `${q.changePct >= 0 ? '+' : ''}${q.changePct.toFixed(2)}%`,
     cls,
     spark,
+    gap,
   };
 }
