@@ -4,7 +4,7 @@ import {
   fetchMarketBreadth,
   getMinuteCached,
   buildSpark,
-  minuteGapStatus,
+  resolveMinuteGap,
   GAP_TEXT,
   MinuteGap,
   SparkData,
@@ -331,7 +331,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
             const { data, fresh } = await getMinuteCached(sym);
             const pc = pcMap.get(sym);
             const spark = pc !== undefined ? buildSpark(data, pc) : null;
-            const gap = minuteGapStatus(data, stateMap.get(sym));
+            // 盘前点数不足属正常，resolveMinuteGap 内部降级为 ok，不误报缺失
+            const gap = resolveMinuteGap(data, stateMap.get(sym));
             if (fresh) {
               this.sparks.set(sym, spark);
               this.gaps.set(sym, gap);
@@ -343,7 +344,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
             }
           } catch {
             this.sparks.set(sym, null);
-            this.gaps.set(sym, 'no-data');
+            // 拉取失败同理：盘前无当日数据属正常，不提示缺失
+            this.gaps.set(sym, resolveMinuteGap({ date: '', points: [] }, stateMap.get(sym)));
             dirty = true;
           }
         }),

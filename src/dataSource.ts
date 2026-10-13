@@ -699,7 +699,8 @@ export function sessionMinute(time: string): number {
   return 240;
 }
 
-export function isTradingTime(now: Date = new Date()): boolean {
+/** 是否交易日：北京时间工作日且非休市日。 */
+export function isTradingDay(now: Date = new Date()): boolean {
   const today = beijingDateStr(now);
   if (closedDay !== '' && closedDay !== today) {
     closedDay = '';
@@ -709,11 +710,40 @@ export function isTradingTime(now: Date = new Date()): boolean {
   if (day === 0 || day === 6) {
     return false;
   }
-  if (closedDay === today) {
+  return closedDay !== today;
+}
+
+export function isTradingTime(now: Date = new Date()): boolean {
+  if (!isTradingDay(now)) {
     return false;
   }
+  const bj = new Date(now.getTime() + BEIJING_OFFSET_MS);
   const mins = bj.getUTCHours() * 60 + bj.getUTCMinutes();
   return (mins >= MORNING_AUCTION && mins < MORNING_END) || (mins >= AFTERNOON_START && mins < AFTERNOON_END);
+}
+
+/**
+ * 盘前/开盘首分钟：交易日 09:31 之前（含集合竞价 09:15~09:30 与开盘第 1 分钟）。
+ * 此时分时接口尚无（或仅有 1 行快照）当日数据，属正常状态。
+ */
+export function isPreOpen(now: Date = new Date()): boolean {
+  if (!isTradingDay(now)) {
+    return false;
+  }
+  const bj = new Date(now.getTime() + BEIJING_OFFSET_MS);
+  return bj.getUTCHours() * 60 + bj.getUTCMinutes() <= MORNING_OPEN;
+}
+
+/**
+ * 结合时钟的缺口判定：盘前点数不足视为正常（ok），不误报「分时数据缺失」/「无成交」。
+ * 停牌/退市由行情状态驱动，盘前照常显示。
+ */
+export function resolveMinuteGap(data: MinuteData, state?: string, now: Date = new Date()): MinuteGap {
+  const gap = minuteGapStatus(data, state);
+  if ((gap === 'no-data' || gap === 'no-trade') && isPreOpen(now)) {
+    return 'ok';
+  }
+  return gap;
 }
 
 function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {

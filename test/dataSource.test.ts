@@ -9,6 +9,8 @@ import {
   buildMinuteChart,
   buildKlineLayout,
   minuteGapStatus,
+  resolveMinuteGap,
+  isPreOpen,
   KlinePoint,
   sessionMinute,
   isTradingTime,
@@ -516,6 +518,41 @@ describe('minuteGapStatus', () => {
     // 正常交易状态不改变判定
     expect(minuteGapStatus(d, undefined)).toBe('no-trade');
     expect(minuteGapStatus(d, '')).toBe('no-trade');
+  });
+});
+
+describe('resolveMinuteGap / isPreOpen', () => {
+  // beijing 2026-08-05 is Wednesday; wall time = UTC + 8h
+  const bj = (h: number, m: number) => new Date(Date.UTC(2026, 7, 5, h - 8, m));
+  const SYM = 'sz000582';
+  const wrap = (rows: string[]) =>
+    JSON.stringify({ data: { [SYM]: { data: { date: '20260805', data: rows } } } });
+  const parse = (rows: string[]) => parseMinuteResponse(wrap(rows), SYM);
+
+  it('treats pre-auction through first minute after open as pre-open', () => {
+    noteMarketDate(['20260805'], bj(9, 26)); // 清除 closedDay 污染
+    expect(isPreOpen(bj(8, 0))).toBe(true);
+    expect(isPreOpen(bj(9, 26))).toBe(true);
+    expect(isPreOpen(bj(9, 30))).toBe(true);
+    expect(isPreOpen(bj(9, 31))).toBe(false);
+    expect(isPreOpen(bj(10, 0))).toBe(false);
+    expect(isPreOpen(new Date(Date.UTC(2026, 7, 8, 1, 0)))).toBe(false); // 周六
+  });
+
+  it('suppresses no-data/no-trade pre-open but keeps suspended/delisted', () => {
+    noteMarketDate(['20260805'], bj(9, 26));
+    expect(resolveMinuteGap(parse([]), undefined, bj(9, 26))).toBe('ok');
+    expect(resolveMinuteGap(parse(['0925 10.00 0 0.00']), undefined, bj(9, 26))).toBe('ok');
+    expect(resolveMinuteGap(parse(['0925 10.00 0 0.00']), 'S', bj(9, 26))).toBe('suspended');
+    expect(resolveMinuteGap(parse(['0925 10.00 0 0.00']), 'D', bj(9, 26))).toBe('delisted');
+  });
+
+  it('still reports gaps after the open', () => {
+    noteMarketDate(['20260805'], bj(10, 0));
+    expect(resolveMinuteGap(parse([]), undefined, bj(10, 0))).toBe('no-data');
+    expect(
+      resolveMinuteGap(parse(['0930 8.97 0 0.00', '0931 8.97 0 0.00']), undefined, bj(10, 0)),
+    ).toBe('no-trade');
   });
 });
 

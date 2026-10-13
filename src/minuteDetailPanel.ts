@@ -10,7 +10,8 @@ import {
   buildKlineLayout,
   clearKlineCache,
   isTradingTime,
-  minuteGapStatus,
+  isPreOpen,
+  resolveMinuteGap,
   GAP_TEXT,
   KLINE_CANDLE_COUNT,
   KLINE_FETCH_COUNT,
@@ -237,9 +238,11 @@ export class MinuteDetailPanel {
           },
           priceDecimals(this.symbol, this.quote?.price),
         );
-        // 出图失败仅作图表区提示（停牌/退市/零成交/缺失），头部与资讯照常渲染
+        // 出图失败仅作图表区提示（停牌/退市/零成交/缺失），头部与资讯照常渲染；
+        // 盘前无当日数据不算缺失，提示「未开盘」
         this.layout = layout;
-        this.chartError = layout ? null : GAP_TEXT[minuteGapStatus(data, q.state)];
+        const gap = resolveMinuteGap(data, q.state);
+        this.chartError = layout ? null : gap === 'ok' && isPreOpen() ? '未开盘' : GAP_TEXT[gap];
         this.layoutFp = fp;
       }
       let vol = 0;
