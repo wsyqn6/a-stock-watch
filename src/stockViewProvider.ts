@@ -74,7 +74,8 @@ const SORT_MODE_KEY = 'sortMode';
 const WEBVIEW_CSS = `
 :root{--up:#E15241;--down:#2EA46E}
 @media (prefers-color-scheme: light){:root{--up:#C73E2E;--down:#2F8F5B}}
-body.boss{filter:grayscale(1)}
+/* 灰度加在 body 上会让 body 成为 fixed 后代的包含块，列表滚动后右键菜单会被定位到可视区外 */
+body.boss>*{filter:grayscale(1)}
 *{box-sizing:border-box;margin:0;padding:0}
 svg[aria-hidden="true"]{position:absolute;pointer-events:none}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px;display:flex;flex-direction:column;height:100vh}
@@ -880,8 +881,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       '<div class="sep"></div>'+
       '<div class="item danger">删除</div>';
     document.body.appendChild(menu);
-    menu.style.left=Math.min(x,window.innerWidth-menu.offsetWidth-4)+'px';
-    menu.style.top=Math.min(y,window.innerHeight-menu.offsetHeight-4)+'px';
+    menu.style.left=Math.max(0,Math.min(x,window.innerWidth-menu.offsetWidth-4))+'px';
+    menu.style.top=Math.max(0,Math.min(y,window.innerHeight-menu.offsetHeight-4))+'px';
     const items=Array.from(menu.querySelectorAll('.item'));
     items[0].addEventListener('click',()=>api.postMessage({type:'toggleStatusBar',symbol:it.sym}));
     items[1].addEventListener('click',()=>api.postMessage({type:'togglePin',symbol:it.sym}));
