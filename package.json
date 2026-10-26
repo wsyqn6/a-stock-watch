@@ -2,7 +2,7 @@
   "name": "a-stock-watch",
   "displayName": "A股速览",
   "description": "A-share (Chinese stock) watchlist with real-time quotes in the VS Code sidebar",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "publisher": "wsyqn6",
   "private": true,
   "repository": {
@@ -202,7 +202,11 @@
           "scope": "window",
           "items": {
             "type": "object",
-            "required": ["symbol", "shares", "cost"],
+            "required": [
+              "symbol",
+              "shares",
+              "cost"
+            ],
             "properties": {
               "symbol": {
                 "type": "string",
