@@ -11,4 +11,10 @@ describe('webview spark color wiring', () => {
     const setAttr = [...src.matchAll(/svg\.setAttribute\('class'/g)];
     expect(setAttr.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('增量重绘必须比较完整签名（颜色|基准线|折线），只比折线会漏更基线/颜色', () => {
+    expect(src).toContain('svg.dataset.sig===sig');
+    expect(src).not.toContain('svg.dataset.pts');
+    expect(src).toMatch(/function sparkSig\(s\)/);
+  });
 });

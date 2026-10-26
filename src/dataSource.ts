@@ -335,6 +335,14 @@ export interface SparkData {
   baseY: number;
 }
 
+/**
+ * 迷你图内容签名：颜色、基准线或折线任一变化都需要重绘。
+ * 用于「内容是否变化」判定，替代缓存命中标志（fresh 只表示本次是否走网络）。
+ */
+export function sparkKey(s: SparkData | null): string {
+  return s && s.line ? `${s.color}|${s.baseY}|${s.line}` : '';
+}
+
 const MINUTE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=';
 const SPARK_WIDTH = 100;
 const SPARK_HEIGHT = 18;
@@ -375,7 +383,11 @@ export function parseMinuteResponse(text: string, symbol: string): MinuteData {
     // vol/amt 各自可选：北交所仅 3 字段（time price vol），无成交额
     const m = /^(\d{4})\s+([\d.]+)(?:\s+(\d+))?(?:\s+([\d.]+))?/.exec(row.trim());
     if (m) {
-      const point: MinutePoint = { time: m[1], price: Number(m[2]) };
+      const price = Number(m[2]);
+      if (!Number.isFinite(price) || price <= 0) {
+        continue;
+      }
+      const point: MinutePoint = { time: m[1], price };
       if (m[3] !== undefined) {
         point.vol = Number(m[3]);
       }
@@ -441,7 +453,8 @@ export async function getMinuteCached(symbol: string): Promise<MinuteResult> {
 }
 
 export function buildSpark(data: MinuteData, prevClose: number): SparkData | null {
-  if (data.points.length < 2) {
+  // prevClose 缺失/为 0 时（新股、停牌、脏数据）坐标范围会被拉到 0，折线压成一条边，不画更诚实
+  if (!Number.isFinite(prevClose) || prevClose <= 0 || data.points.length < 2) {
     return null;
   }
   const sampled = samplePoints(data.points, SAMPLE_STEP);
@@ -722,6 +735,15 @@ export function isTradingTime(now: Date = new Date()): boolean {
   return (mins >= MORNING_AUCTION && mins < MORNING_END) || (mins >= AFTERNOON_START && mins < AFTERNOON_END);
 }
 
+/** 当日交易时段是否已全部结束（15:00 后或非交易日）。收盘后据此判断是否还值得补拉分时，午休不算结束。 */
+export function isSessionOver(now: Date = new Date()): boolean {
+  if (!isTradingDay(now)) {
+    return true;
+  }
+  const bj = new Date(now.getTime() + BEIJING_OFFSET_MS);
+  return bj.getUTCHours() * 60 + bj.getUTCMinutes() >= AFTERNOON_END;
+}
+
 /**
  * 盘前/开盘首分钟：交易日 09:31 之前（含集合竞价 09:15~09:30 与开盘第 1 分钟）。
  * 此时分时接口尚无（或仅有 1 行快照）当日数据，属正常状态。
@@ -744,6 +766,45 @@ export function resolveMinuteGap(data: MinuteData, state?: string, now: Date = n
     return 'ok';
   }
   return gap;
+}
+
+/** 分时数据是否已覆盖当日收盘（末点 15:00）。收盘后据此只补拉一次，避免空轮询。 */
+export function minuteSessionComplete(data: MinuteData): boolean {
+  const last = data.points[data.points.length - 1];
+  return last !== undefined && last.time >= '1500';
+}
+
+/** 收盘后等待 15:00 收尾点的宽限分钟数；超过仍无新数据即按定格处理，避免整晚轮询。 */
+const MINUTE_FINAL_GRACE_MIN = 5;
+
+/**
+ * 当日分时是否已定格（无需再拉）。
+ * - 拿到 15:00 收尾点，或非交易日（数据不会再变）→ 定格
+ * - 收盘后：停牌/退市/无成交 → 定格；正常却始终等不到收尾点，超出宽限期也定格
+ * - 午休/盘前不算收盘，返回 false（由调用方的交易时段判断决定是否跳过刷新）
+ */
+export function isMinuteFinal(
+  data: MinuteData | null,
+  gap: MinuteGap,
+  now: Date = new Date(),
+): boolean {
+  if (data === null) {
+    return false;
+  }
+  if (minuteSessionComplete(data)) {
+    return true;
+  }
+  if (!isTradingDay(now)) {
+    return true;
+  }
+  if (!isSessionOver(now)) {
+    return false;
+  }
+  if (gap !== 'ok') {
+    return true;
+  }
+  const bj = new Date(now.getTime() + BEIJING_OFFSET_MS);
+  return bj.getUTCHours() * 60 + bj.getUTCMinutes() >= AFTERNOON_END + MINUTE_FINAL_GRACE_MIN;
 }
 
 function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {

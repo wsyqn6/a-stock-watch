@@ -12,6 +12,7 @@ import {
   isTradingTime,
   isPreOpen,
   resolveMinuteGap,
+  isMinuteFinal,
   GAP_TEXT,
   KLINE_CANDLE_COUNT,
   KLINE_FETCH_COUNT,
@@ -62,6 +63,8 @@ export class MinuteDetailPanel {
   private quote?: StockQuote;
   private layout: MinuteChartLayout | null = null;
   private layoutFp = '';
+  /** 当日分时已定格（覆盖收盘或收盘后宽限期），收盘后不再定时刷新 */
+  private minuteFinal = false;
   private minuteDate = '';
   private volTotal = 0;
   private amtTotal = 0;
@@ -150,6 +153,7 @@ export class MinuteDetailPanel {
         this.layoutFp = '';
         this.error = null;
         this.chartError = null;
+        this.minuteFinal = false;
         this.klineLayouts.clear();
         clearKlineCache(symbol);
         this.newsTs = 0;
@@ -181,7 +185,8 @@ export class MinuteDetailPanel {
   }
 
   private async refreshTick(): Promise<void> {
-    if (!isTradingTime()) {
+    // 收盘后还需一次补拉拿到 15:00 收尾点；定格后不再空转
+    if (!isTradingTime() && this.minuteFinal) {
       return;
     }
     await this.load();
@@ -228,6 +233,9 @@ export class MinuteDetailPanel {
       // 末笔价量一并纳入指纹：当前分钟内价格/成交量会原地更新，只看点数会让图形滞后一分钟
       const lastPoint = data.points[data.points.length - 1];
       const fp = `${data.date}|${data.points.length}|${lastPoint?.price ?? ''}|${lastPoint?.vol ?? ''}|${q.prevClose}|${q.limitUp ?? ''}|${q.limitDown ?? ''}`;
+      // 定格判定与指纹无关：收盘后数据不再变化时指纹不变，仍需靠时间宽限结束轮询
+      const gap = resolveMinuteGap(data, q.state);
+      this.minuteFinal = isMinuteFinal(data, gap);
       if (fp !== this.layoutFp) {
         const layout = buildMinuteChart(
           data,
@@ -241,7 +249,6 @@ export class MinuteDetailPanel {
         // 出图失败仅作图表区提示（停牌/退市/零成交/缺失），头部与资讯照常渲染；
         // 盘前无当日数据不算缺失，提示「未开盘」
         this.layout = layout;
-        const gap = resolveMinuteGap(data, q.state);
         this.chartError = layout ? null : gap === 'ok' && isPreOpen() ? '未开盘' : GAP_TEXT[gap];
         this.layoutFp = fp;
       }

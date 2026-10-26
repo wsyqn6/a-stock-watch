@@ -4,11 +4,15 @@ import {
   fetchMarketBreadth,
   getMinuteCached,
   buildSpark,
+  sparkKey,
+  isMinuteFinal,
   resolveMinuteGap,
   GAP_TEXT,
+  MinuteData,
   MinuteGap,
   SparkData,
   isTradingTime,
+  isSessionOver,
   MarketBreadth,
   MARKET_INDEX_OPTIONS,
   MarketIndexSymbol,
@@ -59,6 +63,16 @@ export interface MarketPayload {
   breadth: MarketBreadth | null;
 }
 
+/** 单个标的的迷你图状态。spark 与 gap 必须同步更新，合并成一条记录避免两个 Map 脱节。 */
+interface MinuteViewState {
+  spark: SparkData | null;
+  gap: MinuteGap;
+  /** sparkKey(spark)：内容未变时不重复推送 */
+  key: string;
+  /** 当日分时已拿到收盘（或已可判定当日不再变化），收盘后据此停止空轮询 */
+  done: boolean;
+}
+
 /** 指数在概览条的短名（侧边栏空间有限）。 */
 const INDEX_SHORT_NAMES: Record<string, string> = {
   sh000001: '上证',
@@ -77,7 +91,8 @@ const WEBVIEW_CSS = `
 /* 灰度加在 body 上会让 body 成为 fixed 后代的包含块，列表滚动后右键菜单会被定位到可视区外 */
 body.boss>*{filter:grayscale(1)}
 *{box-sizing:border-box;margin:0;padding:0}
-svg[aria-hidden="true"]{position:absolute;pointer-events:none}
+/* 只压隐藏 0×0 的渐变定义图；不要用全局 svg[aria-hidden] —— 迷你图等标记 aria-hidden 后会被绝对定位吞掉 */
+body>svg[aria-hidden="true"]{position:absolute;pointer-events:none}
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);margin:0;padding:0 4px 8px;display:flex;flex-direction:column;height:100vh}
 .row{display:flex;align-items:center;padding:6px;border-bottom:1px solid var(--vscode-panel-border);transition:background .12s ease}
 .row:hover{background:var(--vscode-list-hoverBackground)}
@@ -98,7 +113,7 @@ body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-for
 .spark.hide{display:none}
 .gapmsg{display:none;flex:1;min-width:0;height:30px;align-items:center;justify-content:center;color:var(--vscode-descriptionForeground);font-size:11px;opacity:.75;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gapmsg.on{display:flex}
-.row:hover .spark polyline:not(.glow){stroke-width:1.6}
+.row:hover .spark polyline{stroke-width:1.6}
 @media (prefers-reduced-motion:reduce){.row,.spark{transition:none}}
 .spark polyline{fill:none;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .spark path.area{fill:none;opacity:.8}
@@ -164,7 +179,8 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .midx{display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer}
 .midx:hover{background:var(--vscode-list-hoverBackground)}
 .midx .iname{flex:0 0 52px;font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.midx .spark{flex:1;min-width:0;height:24px;display:block;margin:0 8px}
+.midx .spark{height:24px}
+.midx .gapmsg{height:24px}
 .midx .right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
 .midx .ipct{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap}
 .midx .iprice{font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15;white-space:nowrap}
@@ -188,9 +204,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private indexQuotes: StockQuote[] = [];
   private breadth: MarketBreadth | null = null;
   private lastBreadthAt = 0;
-  private sparks = new Map<string, SparkData | null>();
-  /** 与 sparks 同步维护的分时数据缺口状态 */
-  private gaps = new Map<string, MinuteGap>();
+  private minutes = new Map<string, MinuteViewState>();
   private error: string | null = null;
   private warn: string | null = null;
   private sortMode: SortMode = 'manual';
@@ -270,6 +284,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     this.manager?.dispose();
     this.manager = new RefreshManager(this, webviewView);
     this.manager.start();
+    // 首次解析不会触发 onDidChangeVisibility，这里显式起表，
+    // 保证收盘后仍能补拉最后一分钟（行情轮询在非交易时段是停的）。
+    this.startMinuteTimer();
     webviewView.onDidChangeVisibility(() => this.onVisibility());
   }
 
@@ -304,8 +321,15 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (symbols.length === 0) {
       return;
     }
-    if (!isTradingTime() && symbols.every((s) => this.sparks.has(s))) {
-      return;
+    // 收盘后补拉到定格为止；午休/盘前数据不会变，只在还没有该标的的状态时拉一次（首帧、午休重启、新加自选）。
+    if (!isTradingTime()) {
+      if (isSessionOver()) {
+        if (symbols.every((s) => this.minutes.get(s)?.done)) {
+          return;
+        }
+      } else if (symbols.every((s) => this.minutes.has(s))) {
+        return;
+      }
     }
     this.refreshingMinute = true;
     try {
@@ -329,25 +353,20 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       await Promise.all(
         symbols.map(async (sym) => {
           try {
-            const { data, fresh } = await getMinuteCached(sym);
+            const { data } = await getMinuteCached(sym);
             const pc = pcMap.get(sym);
             const spark = pc !== undefined ? buildSpark(data, pc) : null;
             // 盘前点数不足属正常，resolveMinuteGap 内部降级为 ok，不误报缺失
             const gap = resolveMinuteGap(data, stateMap.get(sym));
-            if (fresh) {
-              this.sparks.set(sym, spark);
-              this.gaps.set(sym, gap);
-              dirty = true;
-            } else if (!this.sparks.has(sym)) {
-              this.sparks.set(sym, spark);
-              this.gaps.set(sym, gap);
+            if (this.recordMinute(sym, spark, gap, data)) {
               dirty = true;
             }
           } catch {
-            this.sparks.set(sym, null);
             // 拉取失败同理：盘前无当日数据属正常，不提示缺失
-            this.gaps.set(sym, resolveMinuteGap({ date: '', points: [] }, stateMap.get(sym)));
-            dirty = true;
+            const gap = resolveMinuteGap({ date: '', points: [] }, stateMap.get(sym));
+            if (this.recordMinute(sym, null, gap, null)) {
+              dirty = true;
+            }
           }
         }),
       );
@@ -357,6 +376,28 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     } finally {
       this.refreshingMinute = false;
     }
+  }
+
+  /**
+   * 记录一次分时结果，返回内容是否变化（用于决定是否推送）。
+   * 判变化看 spark 签名 + gap，不看缓存命中标志：分时缓存被详情面板等其它消费者写入后，
+   * fresh 会是 false，但它并不表示数据没变。
+   */
+  private recordMinute(
+    sym: string,
+    spark: SparkData | null,
+    gap: MinuteGap,
+    data: MinuteData | null,
+  ): boolean {
+    const prev = this.minutes.get(sym);
+    const key = sparkKey(spark);
+    // 收盘（或收盘后确认停牌/退市/无成交）即当日不再变化；data 为 null 表示拉取失败，需要继续重试
+    const done = isMinuteFinal(data, gap);
+    const changed = !prev || prev.key !== key || prev.gap !== gap;
+    if (changed || (prev && prev.done !== done)) {
+      this.minutes.set(sym, { spark, gap, key, done });
+    }
+    return changed;
   }
 
   setSortMode(mode: SortMode): void {
@@ -436,10 +477,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     ] as string[];
     // 已移出自选/概览的标的不再保留分时缓存（重新加回时会自动重取）
     const keep = new Set(fetchList);
-    for (const sym of [...this.sparks.keys()]) {
+    for (const sym of [...this.minutes.keys()]) {
       if (!keep.has(sym)) {
-        this.sparks.delete(sym);
-        this.gaps.delete(sym);
+        this.minutes.delete(sym);
       }
     }
     try {
@@ -557,8 +597,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const items = this.ordered().map((q) =>
       toViewItem(
         q,
-        this.sparks.get(q.symbol) ?? null,
-        this.gaps.get(q.symbol) ?? 'ok',
+        this.minutes.get(q.symbol)?.spark ?? null,
+        this.minutes.get(q.symbol)?.gap ?? 'ok',
         this.store.statusBarHas(q.symbol),
         pinned.has(q.symbol),
       ),
@@ -567,7 +607,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const market: MarketPayload = {
       show: showMarket,
       indices: this.indexQuotes.map((q) =>
-        toIndexViewItem(q, this.sparks.get(q.symbol) ?? null, this.gaps.get(q.symbol) ?? 'ok'),
+        toIndexViewItem(
+          q,
+          this.minutes.get(q.symbol)?.spark ?? null,
+          this.minutes.get(q.symbol)?.gap ?? 'ok',
+        ),
       ),
       breadth: this.breadth,
     };
@@ -630,7 +674,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     return '<div class="midx" data-ix="'+it.sym+'" title="查看 '+it.short+' 走势">'+
       '<span class="iname">'+it.short+'</span>'+
       '<span class="gapmsg"></span>'+
-      '<svg class="spark flat" viewBox="0 0 100 18" preserveAspectRatio="none"></svg>'+
+      '<svg class="spark flat" aria-hidden="true" viewBox="0 0 100 18" preserveAspectRatio="none"></svg>'+
       '<span class="right"><span class="ipct"></span><span class="iprice"></span></span></div>';
   }
   function mkBarHtml(b){
@@ -807,24 +851,28 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   function sparkMarkup(s){
     return '<path class="area" d="'+s.area+'"></path><line class="base" x1="0" y1="'+s.baseY+'" x2="100" y2="'+s.baseY+'"></line><polyline points="'+s.line+'"></polyline>';
   }
+  /** 与 dataSource.sparkKey 同格式（颜色|基准线|折线）：任一变化都要重绘，只比折线会漏掉基线/颜色更新。 */
+  function sparkSig(s){
+    return s&&s.line?s.color+'|'+s.baseY+'|'+s.line:'';
+  }
   function updateSpark(svg,s){
     if(!svg)return;
-    if(s&&s.line){
-      if(svg.dataset.pts!==s.line){
-        svg.dataset.pts=s.line;
-        svg.innerHTML=sparkMarkup(s);
-        svg.setAttribute('class','spark '+s.color);
-      }
-    } else if(svg.innerHTML!==''){
+    const sig=sparkSig(s);
+    if(svg.dataset.sig===sig)return;
+    svg.dataset.sig=sig;
+    if(sig){
+      svg.innerHTML=sparkMarkup(s);
+      svg.setAttribute('class','spark '+s.color);
+    } else {
       svg.innerHTML='';
       svg.setAttribute('class','spark flat');
     }
   }
   function spark(it){
     const s=it.spark;
+    const sig=sparkSig(s);
     const color=s&&s.line?s.color:'flat';
-    const pts=s&&s.line?s.line:'';
-    return '<svg class="spark '+color+'" data-pts="'+pts+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+(s&&s.line?sparkMarkup(s):'')+'</svg>';
+    return '<svg class="spark '+color+'" aria-hidden="true" data-sig="'+sig+'" viewBox="0 0 100 18" preserveAspectRatio="none">'+(sig?sparkMarkup(s):'')+'</svg>';
   }
   function bind(){
     const rows=Array.from(app.querySelectorAll('.row'));

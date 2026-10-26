@@ -5,6 +5,9 @@ import {
   parseKlineResponse,
   parseBreadthResponse,
   buildSpark,
+  sparkKey,
+  minuteSessionComplete,
+  isMinuteFinal,
   buildMinuteSeries,
   buildMinuteChart,
   buildKlineLayout,
@@ -14,6 +17,7 @@ import {
   KlinePoint,
   sessionMinute,
   isTradingTime,
+  isSessionOver,
   beijingDateStr,
   noteMarketDate,
   SparkData,
@@ -258,6 +262,24 @@ describe('parseMinuteResponse', () => {
     expect(d.points).toHaveLength(0);
   });
 
+  it('drops rows with non-positive or malformed price', () => {
+    const d = parseMinuteResponse(
+      JSON.stringify({
+        data: {
+          [SYM]: {
+            data: {
+              date: '20260805',
+              data: ['0930 1.2.3 10 10.00', '0931 0 10 10.00', '0932 10.00 10 10.00'],
+            },
+          },
+        },
+      }),
+      SYM,
+    );
+    expect(d.points).toHaveLength(1);
+    expect(d.points[0]).toMatchObject({ time: '0932', price: 10 });
+  });
+
   it('builds spark with up color when last > prevClose', () => {
     const d = parseMinuteResponse(raw, SYM);
     const s = buildSpark(d, 1822.42);
@@ -318,6 +340,55 @@ describe('parseMinuteResponse', () => {
   it('returns null for insufficient points', () => {
     const d = { date: '211008', points: [{ time: '0930', price: 10 }] };
     expect(buildSpark(d, 10)).toBeNull();
+  });
+
+  it('returns null when prevClose is missing or non-positive', () => {
+    const d = { date: '211008', points: [{ time: '0930', price: 10 }, { time: '0931', price: 10.2 }] };
+    expect(buildSpark(d, 0)).toBeNull();
+    expect(buildSpark(d, -1)).toBeNull();
+    expect(buildSpark(d, Number.NaN)).toBeNull();
+  });
+
+  it('marks flat when last price equals prevClose', () => {
+    const d = { date: '211008', points: [{ time: '0930', price: 10 }, { time: '0931', price: 10 }] };
+    expect(buildSpark(d, 10)!.color).toBe('flat');
+  });
+
+  it('builds a closed area path within the viewBox', () => {
+    const d = parseMinuteResponse(raw, SYM);
+    const s = buildSpark(d, 1822.42)!;
+    expect(s.area.startsWith('M')).toBe(true);
+    expect(s.area.endsWith('Z')).toBe(true);
+    for (const pair of s.area.match(/-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?/g) ?? []) {
+      const [x, y] = pair.split(',').map(Number);
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(100);
+      expect(y).toBeGreaterThanOrEqual(1);
+      expect(y).toBeLessThanOrEqual(17);
+    }
+  });
+});
+
+describe('sparkKey', () => {
+  const base: SparkData = { color: 'up', line: '1.0,2.0 3.0,4.0', area: 'M1,2 L3,4 Z', baseY: 9 };
+
+  it('is empty for no spark', () => {
+    expect(sparkKey(null)).toBe('');
+    expect(sparkKey({ ...base, line: '' })).toBe('');
+  });
+
+  it('is stable for identical content', () => {
+    expect(sparkKey(base)).toBe(sparkKey({ ...base }));
+  });
+
+  it('changes when color, baseline or line changes', () => {
+    expect(sparkKey(base)).not.toBe(sparkKey({ ...base, color: 'down' }));
+    expect(sparkKey(base)).not.toBe(sparkKey({ ...base, baseY: 8.5 }));
+    expect(sparkKey(base)).not.toBe(sparkKey({ ...base, line: '1.0,2.0 3.0,5.0' }));
+  });
+
+  it('reuses the same signature when only the area geometry is recomputed', () => {
+    expect(sparkKey(base)).toBe(sparkKey({ ...base, area: 'M1,2 L3,4 L3,6 L1,6 Z' }));
   });
 });
 
@@ -556,6 +627,55 @@ describe('resolveMinuteGap / isPreOpen', () => {
   });
 });
 
+describe('minuteSessionComplete', () => {
+  const data = (times: string[]) => ({
+    date: '20260805',
+    points: times.map((time) => ({ time, price: 10 })),
+  });
+
+  it('is true once the last point reaches the close', () => {
+    expect(minuteSessionComplete(data(['0930', '1500']))).toBe(true);
+  });
+
+  it('is false for intraday or empty data', () => {
+    expect(minuteSessionComplete(data(['0930', '1459']))).toBe(false);
+    expect(minuteSessionComplete(data([]))).toBe(false);
+  });
+});
+
+describe('isMinuteFinal', () => {
+  // beijing 2026-08-05 is Wednesday
+  const bj = (h: number, m: number) => new Date(Date.UTC(2026, 7, 5, h - 8, m));
+  const data = (times: string[]) => ({
+    date: '20260805',
+    points: times.map((time) => ({ time, price: 10 })),
+  });
+  const intraday = data(['0930', '1459']);
+
+  it('is final once the 15:00 point is present', () => {
+    expect(isMinuteFinal(data(['0930', '1500']), 'ok', bj(15, 1))).toBe(true);
+  });
+
+  it('keeps retrying briefly after the close for the closing point', () => {
+    expect(isMinuteFinal(intraday, 'ok', bj(14, 59))).toBe(false);
+    expect(isMinuteFinal(intraday, 'ok', bj(15, 1))).toBe(false);
+    expect(isMinuteFinal(intraday, 'ok', bj(15, 4))).toBe(false);
+  });
+
+  it('settles after the grace window or for a non-trading day', () => {
+    expect(isMinuteFinal(intraday, 'ok', bj(15, 5))).toBe(true);
+    expect(isMinuteFinal(intraday, 'ok', new Date(Date.UTC(2026, 7, 8, 2, 0)))).toBe(true); // sat
+  });
+
+  it('settles after close for suspended/no-trade gaps', () => {
+    expect(isMinuteFinal(data([]), 'suspended', bj(15, 1))).toBe(true);
+  });
+
+  it('never claims final when the fetch failed', () => {
+    expect(isMinuteFinal(null, 'no-data', bj(20, 0))).toBe(false);
+  });
+});
+
 describe('parseBreadthResponse', () => {
   const emJSON = (diff: unknown[]) =>
     JSON.stringify({ rc: 0, data: { total: diff.length, diff } });
@@ -637,6 +757,24 @@ describe('isTradingTime', () => {
     const sun = new Date(Date.UTC(2026, 7, 2, 2, 0)); // beijing sun 10:00
     expect(isTradingTime(sat)).toBe(false);
     expect(isTradingTime(sun)).toBe(false);
+  });
+});
+
+describe('isSessionOver', () => {
+  // beijing 2026-08-05 is Wednesday
+  const bj = (h: number, m: number) => new Date(Date.UTC(2026, 7, 5, h - 8, m));
+
+  it('is false before the close, including the lunch break', () => {
+    expect(isSessionOver(bj(8, 0))).toBe(false);
+    expect(isSessionOver(bj(10, 0))).toBe(false);
+    expect(isSessionOver(bj(12, 0))).toBe(false);
+    expect(isSessionOver(bj(14, 59))).toBe(false);
+  });
+
+  it('is true at/after the close and on non-trading days', () => {
+    expect(isSessionOver(bj(15, 0))).toBe(true);
+    expect(isSessionOver(bj(20, 0))).toBe(true);
+    expect(isSessionOver(new Date(Date.UTC(2026, 7, 8, 2, 0)))).toBe(true); // sat
   });
 });
 
