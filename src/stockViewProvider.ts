@@ -25,6 +25,15 @@ import { fmtPrice, getNonce } from './util';
 import { fetchQuotesCached } from './quoteCache';
 import { config } from './config';
 import {
+  buildHoldingView,
+  buildSummaryView,
+  computeHolding,
+  Holding,
+  HoldingStat,
+  HoldingView,
+  parseHoldings,
+} from './holdings';
+import {
   fetchNewStockApplies,
   fetchNewBondApplies,
   groupByDay,
@@ -43,6 +52,8 @@ export interface QuoteViewItem {
   spark: SparkData | null;
   /** 分时数据缺口：ok 时仅画迷你图，其余在迷你图区显示提示文字 */
   gap: MinuteGap;
+  /** 持仓行：第一行改显当日盈亏，第二行补现价与涨幅；无持仓时不存在 */
+  pnl?: HoldingView;
   inBar: boolean;
   pinned: boolean;
 }
@@ -148,6 +159,9 @@ body.editing .top{max-width:20px;margin-left:6px;padding:0 2px;opacity:.9}
 .ipo-body .dayhead,.ipo-body .sechead,.ipofold-title{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
 .lhead .cnt,.ipo-body .dayhead .cnt{font-weight:400;letter-spacing:0;opacity:.7}
 .msg{padding:12px;color:var(--vscode-descriptionForeground);text-align:center}
+/* 持仓汇总：压在标题行右端，不新增行高；取消标题的大写与字距，超宽省略 */
+.lhead .sum{margin-left:auto;min-width:0;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground);font-variant-numeric:tabular-nums}
+.lhead .sum b{font-weight:600}
 .warn{padding:6px 12px;color:var(--vscode-editorWarning-foreground);font-size:12px;line-height:1.4;word-break:break-all}
 .ipo{margin-top:auto;flex:0 0 auto}
 .ipofold{display:flex;align-items:center;gap:6px;padding:5px 12px 5px 8px;margin-top:6px;border-top:1px solid var(--vscode-panel-border);cursor:pointer;user-select:none}
@@ -594,15 +608,26 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const pinned = new Set(this.store.getPinned());
-    const items = this.ordered().map((q) =>
-      toViewItem(
+    // 持仓只在展示层参与计算：行情仍按自选批量拉取，持仓不额外产生请求
+    const holdings = new Map(
+      parseHoldings(config.holdings()).map((h) => [h.symbol, h] as const),
+    );
+    const stats: HoldingStat[] = [];
+    const items = this.ordered().map((q) => {
+      const holding = holdings.get(q.symbol);
+      const stat = holding ? computeHolding(holding, q) : null;
+      if (stat) {
+        stats.push(stat);
+      }
+      return toViewItem(
         q,
         this.minutes.get(q.symbol)?.spark ?? null,
         this.minutes.get(q.symbol)?.gap ?? 'ok',
         this.store.statusBarHas(q.symbol),
         pinned.has(q.symbol),
-      ),
-    );
+        holding,
+      );
+    });
     const showMarket = config.showMarketBar();
     const market: MarketPayload = {
       show: showMarket,
@@ -622,6 +647,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       warn: this.warn,
       boss: this.bossMode,
       market,
+      sum: buildSummaryView(stats),
     });
   }
 
@@ -669,6 +695,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   }
   let editing=false;
   let cur=[];
+  let curSum=null;
   let lastMkSig='';
   function idxHtml(it){
     return '<div class="midx" data-ix="'+it.sym+'" title="查看 '+it.short+' 走势">'+
@@ -789,30 +816,49 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   window.addEventListener('message',e=>{
     const m=e.data;
     if(!m)return;
-    if(m.type==='editMode'){ editing=!!m.value; document.body.classList.toggle('editing',editing); if(cur.length)render(cur); return; }
+    if(m.type==='editMode'){ editing=!!m.value; document.body.classList.toggle('editing',editing); if(cur.length)render(cur,undefined,curSum); return; }
     if(m.type==='ipo'){ renderIpo(m); return; }
     if(m.type!=='quotes')return;
     document.body.classList.toggle('boss',!!m.boss);
     renderMarket(m.market);
     if(m.error){resetList();app.innerHTML='<div class="msg">'+esc(m.error)+'</div>';return;}
     if(!m.items||!m.items.length){resetList();app.innerHTML='<div class="lhead">自选股<span class="cnt">0</span></div><div class="msg">暂无自选股，点击 + 添加</div>';return;}
-    render(m.items,m.warn);
+    curSum=m.sum||null;
+    render(m.items,m.warn,curSum);
   });
   // 错误/空态直接覆盖了列表 DOM，签名须一并清空：否则行情恢复后同一符号集会命中增量分支，
   // 而查询不到任何行，列表一直停在错误态。
   let curSig=null;
-  function resetList(){curSig=null;cur=[];}
-  function render(items,warn){
+  function resetList(){curSig=null;cur=[];curSum=null;}
+  /** 汇总只在存在有效持仓时出现，无持仓时连占位节点都不生成，保证零足迹。 */
+  function sumHtml(sum){
+    if(!sum)return '';
+    return '<span class="sum" title="'+esc(sum.title)+'">今日 <b class="'+sum.dayCls+'">'+esc(sum.day)+'</b> · 累计 <b class="'+sum.totalCls+'">'+esc(sum.total)+'</b></span>';
+  }
+  function updateSum(sum){
+    const bar=app.querySelector('.lhead');
+    if(!bar)return;
+    const el=bar.querySelector('.sum');
+    if(!sum){if(el)el.remove();return;}
+    if(el){el.outerHTML=sumHtml(sum);return;}
+    bar.insertAdjacentHTML('beforeend',sumHtml(sum));
+  }
+  function render(items,warn,sum){
     const sig=editing+'|'+items.map(it=>it.sym).join(',');
     if(curSig!==sig){
       curSig=sig;
       closeMenu();
       const banner=warn?'<div class="warn">'+esc(warn)+'</div>':'';
-      app.innerHTML=banner+'<div class="lhead">自选股<span class="cnt">'+items.length+'</span></div>'+items.map((it,i)=>{
+      app.innerHTML=banner+'<div class="lhead">自选股<span class="cnt">'+items.length+'</span>'+sumHtml(sum)+'</div>'+items.map((it,i)=>{
         const handle=editing?'<span class="handle" title="拖动排序">⋮⋮</span>':'';
         const pin=editing?'<button class="pin'+(it.inBar?' on':'')+'" title="'+(it.inBar?'从状态栏移除':'添加到状态栏')+'">'+PIN_SVG+'</button>':'';
         const top=editing?'<button class="top'+(it.pinned?' on':'')+'" title="'+(it.pinned?'取消置顶':'置顶')+'">'+TOP_SVG+'</button>':'';
-        return '<div class="row" data-i="'+i+'"'+(editing?' draggable="true"':' role="button" tabindex="0"')+'>'+handle+'<div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+(it.board?'<span class="board">'+esc(it.board)+'</span>':'')+'</span></div><span class="gapmsg"></span>'+spark(it)+'<div class="right"><span class="pct '+it.cls+'">'+it.changePct+'</span><span class="price">'+it.price+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
+        const pnl=it.pnl;
+        const main=pnl?pnl.main:it.changePct;
+        const mainCls=pnl?pnl.cls:it.cls;
+        const sub=pnl?pnl.sub:it.price;
+        const tip=pnl?' title="'+esc(pnl.title)+'"':'';
+        return '<div class="row" data-i="'+i+'"'+tip+(editing?' draggable="true"':' role="button" tabindex="0"')+'>'+handle+'<div class="left"><span class="name">'+esc(it.name)+'</span><span class="codeline"><span class="code">'+esc(it.code)+'</span>'+(it.board?'<span class="board">'+esc(it.board)+'</span>':'')+'</span></div><span class="gapmsg"></span>'+spark(it)+'<div class="right"><span class="pct '+mainCls+'">'+esc(main)+'</span><span class="price">'+esc(sub)+'</span></div>'+pin+top+'<button class="del" title="删除">✕</button></div>';
       }).join('');
       fitNames();
       bind();
@@ -830,13 +876,16 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       items.forEach((it,i)=>{
         const row=rows[i];
         if(!row)return;
+        const pnl=it.pnl;
         const pct=row.querySelector('.pct');
         const price=row.querySelector('.price');
-        if(pct){pct.textContent=it.changePct;pct.className='pct '+it.cls;}
-        if(price){price.textContent=it.price;price.className='price';}
+        if(pct){pct.textContent=pnl?pnl.main:it.changePct;pct.className='pct '+(pnl?pnl.cls:it.cls);}
+        if(price){price.textContent=pnl?pnl.sub:it.price;price.className='price';}
+        if(pnl){row.title=pnl.title;}else{row.removeAttribute('title');}
         updateSpark(row.querySelector('.spark'),it.spark);
         applyGap(row,it.gap);
       });
+      updateSum(sum);
     }
     cur=items;
   }
@@ -962,6 +1011,7 @@ function toViewItem(
   gap: MinuteGap,
   inBar: boolean,
   pinned: boolean,
+  holding?: Holding,
 ): QuoteViewItem {
   const cls: QuoteViewItem['cls'] = q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat';
   const code = q.symbol.slice(2);
@@ -975,6 +1025,7 @@ function toViewItem(
     cls,
     spark,
     gap,
+    pnl: holding ? buildHoldingView(holding, q) : undefined,
     inBar,
     pinned,
   };
