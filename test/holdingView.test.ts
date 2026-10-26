@@ -23,4 +23,23 @@ describe('webview holding wiring', () => {
   it('汇总样式挂在标题行内，不新增独立行', () => {
     expect(src).toContain('.lhead .sum{');
   });
+
+  it('右键菜单提供持仓入口，文案随是否持仓切换', () => {
+    expect(src).toContain("it.held?'修改持仓':'设置持仓'");
+    expect(src).toContain("{type:'editHolding',symbol:it.sym}");
+    expect(src).toContain("type === 'editHolding'");
+  });
+
+  it('持仓写回使用配置写入目标，避免作用域被遮蔽', () => {
+    expect(src).toContain("update('holdings', next, configWriteTarget('holdings'))");
+  });
+});
+
+describe('extension holding wiring', () => {
+  const ext = readFileSync(join(import.meta.dir, '..', 'src', 'extension.ts'), 'utf8');
+
+  it('手改设置或同步持仓后只重算展示，不重新拉行情', () => {
+    expect(ext).toContain("e.affectsConfiguration('aStockWatch.holdings')");
+    expect(ext).toContain('provider.refreshHoldings()');
+  });
 });

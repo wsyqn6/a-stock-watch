@@ -23,7 +23,7 @@ import { normalizeSortMode, orderQuotes, SortMode } from './order';
 import { MinuteDetailPanel } from './minuteDetailPanel';
 import { fmtPrice, getNonce } from './util';
 import { fetchQuotesCached } from './quoteCache';
-import { config } from './config';
+import { config, configWriteTarget } from './config';
 import {
   buildHoldingView,
   buildSummaryView,
@@ -54,6 +54,8 @@ export interface QuoteViewItem {
   gap: MinuteGap;
   /** 持仓行：第一行改显当日盈亏，第二行补现价与涨幅；无持仓时不存在 */
   pnl?: HoldingView;
+  /** 是否已录入持仓：右键菜单据此切换「设置 / 修改」文案 */
+  held: boolean;
   inBar: boolean;
   pinned: boolean;
 }
@@ -279,6 +281,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         if (typeof code === 'string') {
           void vscode.env.clipboard.writeText(code);
         }
+      } else if (type === 'editHolding') {
+        const symbol = (msg as { symbol?: unknown }).symbol;
+        if (typeof symbol === 'string') {
+          void this.editHolding(symbol);
+        }
       } else if (type === 'reorder') {
         const symbols = (msg as { symbols?: unknown }).symbols;
         if (Array.isArray(symbols)) {
@@ -445,6 +452,70 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 
   notifyChanged(): void {
     void this.manager?.refresh();
+  }
+
+  /** 持仓改动只影响展示：重算行内与汇总即可，不必重新拉行情。 */
+  refreshHoldings(): void {
+    this.push();
+  }
+
+  /** 两步录入持仓：股数 → 成本价；股数留空或 0 即取消该标的持仓。 */
+  private async editHolding(symbol: string): Promise<void> {
+    const list = parseHoldings(config.holdings());
+    const current = list.find((h) => h.symbol === symbol);
+    const name = this.quotes.find((q) => q.symbol === symbol)?.name ?? symbol;
+    const sharesInput = await vscode.window.showInputBox({
+      title: `设置持仓 · ${name}`,
+      prompt: '持有数量（股/份/张），留空或 0 表示取消持仓',
+      value: current ? String(current.shares) : '',
+      validateInput: (v) => {
+        const text = v.trim();
+        if (text === '') {
+          return undefined;
+        }
+        const n = Number(text);
+        return Number.isInteger(n) && n >= 0 ? undefined : '请输入非负整数（留空取消持仓）';
+      },
+    });
+    if (sharesInput === undefined) {
+      return;
+    }
+    const sharesText = sharesInput.trim();
+    const shares = Number(sharesText);
+    if (sharesText === '' || shares === 0) {
+      await this.writeHoldings(list.filter((h) => h.symbol !== symbol));
+      return;
+    }
+    const costInput = await vscode.window.showInputBox({
+      title: `设置持仓 · ${name}`,
+      prompt: '摊薄成本价（元），手续费与分红请折算进成本',
+      value: current ? String(current.cost) : '',
+      validateInput: (v) => {
+        const n = Number(v.trim());
+        return Number.isFinite(n) && n > 0 ? undefined : '请输入大于 0 的成本价';
+      },
+    });
+    if (costInput === undefined) {
+      return;
+    }
+    const cost = Number(costInput.trim());
+    const next = [...list.filter((h) => h.symbol !== symbol), { symbol, shares, cost }];
+    await this.writeHoldings(next);
+  }
+
+  private async writeHoldings(next: Holding[]): Promise<void> {
+    try {
+      await vscode.workspace
+        .getConfiguration('aStockWatch')
+        .update('holdings', next, configWriteTarget('holdings'));
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `保存持仓失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    // 配置变更事件也会触发刷新；这里先推一次，输入完成后界面不必等事件回环
+    this.push();
   }
 
   getSymbols(): string[] {
@@ -975,6 +1046,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       '<div class="item">'+(it.inBar?'从状态栏移除':'添加到状态栏')+'</div>'+
       '<div class="item">'+(it.pinned?'取消置顶':'置顶')+'</div>'+
       '<div class="item">复制代码</div>'+
+      '<div class="item">'+(it.held?'修改持仓':'设置持仓')+'</div>'+
       '<div class="sep"></div>'+
       '<div class="item danger">删除</div>';
     document.body.appendChild(menu);
@@ -984,7 +1056,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     items[0].addEventListener('click',()=>api.postMessage({type:'toggleStatusBar',symbol:it.sym}));
     items[1].addEventListener('click',()=>api.postMessage({type:'togglePin',symbol:it.sym}));
     items[2].addEventListener('click',()=>api.postMessage({type:'copy',code:it.code}));
-    items[3].addEventListener('click',()=>api.postMessage({type:'remove',symbol:it.sym}));
+    items[3].addEventListener('click',()=>api.postMessage({type:'editHolding',symbol:it.sym}));
+    items[4].addEventListener('click',()=>api.postMessage({type:'remove',symbol:it.sym}));
     items.forEach(el=>el.addEventListener('click',closeMenu));
   }
   window.addEventListener('contextmenu',e=>{
@@ -1026,6 +1099,7 @@ function toViewItem(
     spark,
     gap,
     pnl: holding ? buildHoldingView(holding, q) : undefined,
+    held: holding !== undefined,
     inBar,
     pinned,
   };
