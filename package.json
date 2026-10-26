@@ -196,6 +196,30 @@
           "scope": "window",
           "description": "状态栏显示的股票代码（须为自选股成员，最多3只，数组顺序即状态栏顺序，可在设置中直接编辑）"
         },
+        "aStockWatch.holdings": {
+          "type": "array",
+          "default": [],
+          "scope": "window",
+          "items": {
+            "type": "object",
+            "required": ["symbol", "shares", "cost"],
+            "properties": {
+              "symbol": {
+                "type": "string",
+                "description": "股票代码，如 sz000001"
+              },
+              "shares": {
+                "type": "number",
+                "description": "持有数量（股/份/张），正整数"
+              },
+              "cost": {
+                "type": "number",
+                "description": "摊薄成本价（元），正数；手续费与分红请自行折算进成本"
+              }
+            }
+          },
+          "description": "持仓列表，用于在自选行内显示当日盈亏与汇总；留空则界面与原来完全一致（可在设置中直接编辑）"
+        },
         "aStockWatch.showMarketBar": {
           "type": "boolean",
           "default": true,

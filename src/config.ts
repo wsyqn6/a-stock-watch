@@ -40,6 +40,10 @@ export const config = {
   bossModeTitle(): string {
     return vscode.workspace.getConfiguration(SECTION).get<string>('bossModeTitle', '文档');
   },
+  /** 持仓原始配置（未知结构），由 holdings.parseHoldings 校验归一化。 */
+  holdings(): unknown {
+    return vscode.workspace.getConfiguration(SECTION).get<unknown>('holdings', []);
+  },
 };
 
 /**
