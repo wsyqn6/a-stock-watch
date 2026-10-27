@@ -174,6 +174,8 @@ export interface StockQuote {
   changePct: number;
   trend: 'up' | 'down' | 'flat';
   date: string;
+  /** 行情时间 HHMMSS（腾讯字段 30），缺失时为空 */
+  time?: string;
   /** 换手率 % */
   turnoverRate?: number;
   /** 市盈率 TTM */
@@ -280,7 +282,9 @@ export function parseTencentResponse(text: string): StockQuote[] {
     const changePct = Number(fields[F.changePct]);
     const trend: StockQuote['trend'] =
       changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat';
-    const date = /^\d{8}/.exec(fields[F.date])?.[0] ?? '';
+    const dt = /^(\d{8})(\d{6})?/.exec(fields[F.date]);
+    const date = dt?.[1] ?? '';
+    const time = dt?.[2];
     const circMcapYi = toFinitePos(fields[F.circMcapYi]);
     const totalMcapYi = toFinitePos(fields[F.totalMcapYi]);
     const amountYi = toFinitePos(fields[F.amountYi]);
@@ -296,6 +300,7 @@ export function parseTencentResponse(text: string): StockQuote[] {
       changePct,
       trend,
       date,
+      time,
       turnoverRate: toFinitePos(fields[F.turnover]),
       pe: toFinitePos(fields[F.pe]),
       pb: toFinitePos(fields[F.pb]),
@@ -350,6 +355,7 @@ const SPARK_PAD = 1;
 const SAMPLE_STEP = 5;
 
 const minuteCache = new Map<string, { data: MinuteData; ts: number }>();
+const minuteInflight = new Map<string, Promise<MinuteData>>();
 const MINUTE_TTL_MS = 60_000;
 /** 分时缓存最大条目数，超过则淘汰最旧，避免自选股频繁增删时无界增长。 */
 const MINUTE_CACHE_MAX = 64;
@@ -434,15 +440,29 @@ export const GAP_TEXT: Record<MinuteGap, string> = {
   'no-data': '分时数据缺失',
 };
 
-export async function getMinuteCached(symbol: string): Promise<MinuteResult> {
+export async function getMinuteCached(
+  symbol: string,
+  ttlMs = MINUTE_TTL_MS,
+): Promise<MinuteResult> {
   const hit = minuteCache.get(symbol);
-  if (hit && Date.now() - hit.ts < MINUTE_TTL_MS) {
+  if (hit && ttlMs > 0 && Date.now() - hit.ts < ttlMs) {
     return { data: hit.data, fresh: false };
   }
+  let pending = minuteInflight.get(symbol);
+  if (!pending) {
+    pending = fetchMinute(symbol)
+      .then((data) => {
+        minuteCache.set(symbol, { data, ts: Date.now() });
+        trimCache(minuteCache, MINUTE_CACHE_MAX);
+        return data;
+      })
+      .finally(() => {
+        minuteInflight.delete(symbol);
+      });
+    minuteInflight.set(symbol, pending);
+  }
   try {
-    const data = await fetchMinute(symbol);
-    minuteCache.set(symbol, { data, ts: Date.now() });
-    trimCache(minuteCache, MINUTE_CACHE_MAX);
+    const data = await pending;
     return { data, fresh: true };
   } catch (err) {
     if (hit) {
@@ -694,6 +714,14 @@ export function beijingDateStr(now: Date = new Date()): string {
     .toISOString()
     .slice(0, 10)
     .replace(/-/g, '');
+}
+
+/** 北京时间 HHMMSS，供行情快照写入分钟桶时对齐交易时间。 */
+export function beijingTimeStr(now: Date = new Date()): string {
+  return new Date(now.getTime() + BEIJING_OFFSET_MS)
+    .toISOString()
+    .slice(11, 19)
+    .replace(/:/g, '');
 }
 
 export function noteMarketDate(dates: string[], now: Date = new Date()): void {

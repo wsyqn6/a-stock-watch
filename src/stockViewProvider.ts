@@ -3,20 +3,16 @@ import {
   StockQuote,
   fetchMarketBreadth,
   getMinuteCached,
-  buildSpark,
-  sparkKey,
-  isMinuteFinal,
-  resolveMinuteGap,
   GAP_TEXT,
-  MinuteData,
   MinuteGap,
   SparkData,
-  isTradingTime,
-  isSessionOver,
   MarketBreadth,
   MARKET_INDEX_OPTIONS,
   MarketIndexSymbol,
+  isPreOpen,
+  isTradingDay,
 } from './dataSource';
+import { IntradayBook } from './intraday';
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 import { normalizeSortMode, orderQuotes, SortMode } from './order';
@@ -74,16 +70,6 @@ export interface MarketPayload {
   show: boolean;
   indices: IndexViewItem[];
   breadth: MarketBreadth | null;
-}
-
-/** 单个标的的迷你图状态。spark 与 gap 必须同步更新，合并成一条记录避免两个 Map 脱节。 */
-interface MinuteViewState {
-  spark: SparkData | null;
-  gap: MinuteGap;
-  /** sparkKey(spark)：内容未变时不重复推送 */
-  key: string;
-  /** 当日分时已拿到收盘（或已可判定当日不再变化），收盘后据此停止空轮询 */
-  done: boolean;
 }
 
 /** 指数在概览条的短名（侧边栏空间有限）。 */
@@ -220,7 +206,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private indexQuotes: StockQuote[] = [];
   private breadth: MarketBreadth | null = null;
   private lastBreadthAt = 0;
-  private minutes = new Map<string, MinuteViewState>();
+  private readonly intraday = new IntradayBook();
   private error: string | null = null;
   private warn: string | null = null;
   private sortMode: SortMode = 'manual';
@@ -342,52 +328,47 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (symbols.length === 0) {
       return;
     }
-    // 收盘后补拉到定格为止；午休/盘前数据不会变，只在还没有该标的的状态时拉一次（首帧、午休重启、新加自选）。
-    if (!isTradingTime()) {
-      if (isSessionOver()) {
-        if (symbols.every((s) => this.minutes.get(s)?.done)) {
-          return;
-        }
-      } else if (symbols.every((s) => this.minutes.has(s))) {
-        return;
-      }
+    // 盘前/非交易日没有当日分时可补，避免白拉行情
+    if (!isTradingDay() || isPreOpen()) {
+      return;
     }
     this.refreshingMinute = true;
     try {
-      const pcMap = new Map(
-        [...this.quotes, ...this.indexQuotes].map((q) => [q.symbol, q.prevClose] as const),
+      const quoteMap = new Map(
+        [...this.quotes, ...this.indexQuotes].map((q) => [q.symbol, q] as const),
       );
-      const stateMap = new Map(
-        [...this.quotes, ...this.indexQuotes].map((q) => [q.symbol, q.state] as const),
-      );
-      if (symbols.some((s) => !pcMap.has(s))) {
+      const missing = symbols.filter((s) => !quoteMap.has(s));
+      if (missing.length > 0) {
         try {
-          for (const q of await fetchQuotesCached(symbols)) {
-            pcMap.set(q.symbol, q.prevClose);
-            stateMap.set(q.symbol, q.state);
+          for (const q of await fetchQuotesCached(missing)) {
+            quoteMap.set(q.symbol, q);
           }
         } catch {
-          // keep whatever prevClose we already have
+          // 拿不到行情的标的无法判定缺口，等下一轮
         }
+      }
+      const need = symbols.filter((s) => {
+        const q = quoteMap.get(s);
+        return q !== undefined && this.intraday.needsSeed(s, q);
+      });
+      if (need.length === 0) {
+        return;
       }
       let dirty = false;
       await Promise.all(
-        symbols.map(async (sym) => {
+        need.map(async (sym) => {
+          const q = quoteMap.get(sym);
+          if (!q) {
+            return;
+          }
           try {
-            const { data } = await getMinuteCached(sym);
-            const pc = pcMap.get(sym);
-            const spark = pc !== undefined ? buildSpark(data, pc) : null;
-            // 盘前点数不足属正常，resolveMinuteGap 内部降级为 ok，不误报缺失
-            const gap = resolveMinuteGap(data, stateMap.get(sym));
-            if (this.recordMinute(sym, spark, gap, data)) {
+            // 只有判定需要补种子才强制走网络，避免 60s 缓存把缺口继续拖住
+            const { data } = await getMinuteCached(sym, 0);
+            if (this.intraday.applySeed(sym, data, q)) {
               dirty = true;
             }
           } catch {
-            // 拉取失败同理：盘前无当日数据属正常，不提示缺失
-            const gap = resolveMinuteGap({ date: '', points: [] }, stateMap.get(sym));
-            if (this.recordMinute(sym, null, gap, null)) {
-              dirty = true;
-            }
+            // 拉取失败保留本地序列，下一轮再试
           }
         }),
       );
@@ -397,28 +378,6 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     } finally {
       this.refreshingMinute = false;
     }
-  }
-
-  /**
-   * 记录一次分时结果，返回内容是否变化（用于决定是否推送）。
-   * 判变化看 spark 签名 + gap，不看缓存命中标志：分时缓存被详情面板等其它消费者写入后，
-   * fresh 会是 false，但它并不表示数据没变。
-   */
-  private recordMinute(
-    sym: string,
-    spark: SparkData | null,
-    gap: MinuteGap,
-    data: MinuteData | null,
-  ): boolean {
-    const prev = this.minutes.get(sym);
-    const key = sparkKey(spark);
-    // 收盘（或收盘后确认停牌/退市/无成交）即当日不再变化；data 为 null 表示拉取失败，需要继续重试
-    const done = isMinuteFinal(data, gap);
-    const changed = !prev || prev.key !== key || prev.gap !== gap;
-    if (changed || (prev && prev.done !== done)) {
-      this.minutes.set(sym, { spark, gap, key, done });
-    }
-    return changed;
   }
 
   setSortMode(mode: SortMode): void {
@@ -452,6 +411,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 
   notifyChanged(): void {
     void this.manager?.refresh();
+    void this.refreshMinute();
   }
 
   /** 持仓改动只影响展示：重算行内与汇总即可，不必重新拉行情。 */
@@ -560,13 +520,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     const fetchList = [
       ...new Set(idxSym ? [idxSym, ...symbols] : symbols),
     ] as string[];
-    // 已移出自选/概览的标的不再保留分时缓存（重新加回时会自动重取）
-    const keep = new Set(fetchList);
-    for (const sym of [...this.minutes.keys()]) {
-      if (!keep.has(sym)) {
-        this.minutes.delete(sym);
-      }
-    }
+    // 已移出自选/概览的标的不再保留日内状态（重新加回时会自动重取）
+    this.intraday.prune(fetchList);
     try {
       const all = await fetchQuotesCached(fetchList);
       this.quotes = wanted.size > 0 ? all.filter((q) => wanted.has(q.symbol)) : [];
@@ -597,8 +552,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (showMarket) {
       void this.refreshBreadth();
     }
+    this.intraday.recordQuotes([...this.quotes, ...this.indexQuotes]);
     this.push();
-    void this.refreshMinute();
   }
 
   /** 拉取沪深全 A 涨跌家数；失败静默降级（概览条仅不显示进度条，不影响行情）。60s 节流：家数变化慢，无需随行情 3s 一拉。 */
@@ -692,8 +647,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       }
       return toViewItem(
         q,
-        this.minutes.get(q.symbol)?.spark ?? null,
-        this.minutes.get(q.symbol)?.gap ?? 'ok',
+        this.intraday.spark(q.symbol, q),
+        this.intraday.gap(q.symbol, q),
         this.store.statusBarHas(q.symbol),
         pinned.has(q.symbol),
         holding,
@@ -705,8 +660,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       indices: this.indexQuotes.map((q) =>
         toIndexViewItem(
           q,
-          this.minutes.get(q.symbol)?.spark ?? null,
-          this.minutes.get(q.symbol)?.gap ?? 'ok',
+          this.intraday.spark(q.symbol, q),
+          this.intraday.gap(q.symbol, q),
         ),
       ),
       breadth: this.breadth,

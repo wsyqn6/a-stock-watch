@@ -163,6 +163,7 @@ describe('parseTencentResponse', () => {
     f[32] = '0.00';
     const q = parseTencentResponse(`v_sh000001="${f.join('~')}";`);
     expect(q[0].date).toBe('20260805');
+    expect(q[0].time).toBe('161202');
   });
 
   it('parses open/high/low when fields present', () => {
