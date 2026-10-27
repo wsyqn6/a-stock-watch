@@ -6,3 +6,4 @@ out/
 docs
 .opencode/
 scripts/release.mjs
+AGENTS.md
