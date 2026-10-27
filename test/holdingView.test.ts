@@ -2,7 +2,9 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const src = readFileSync(join(import.meta.dir, '..', 'src', 'stockViewProvider.ts'), 'utf8');
+const webview = readFileSync(join(import.meta.dir, '..', 'src', 'webviewHtml.ts'), 'utf8');
+const provider = readFileSync(join(import.meta.dir, '..', 'src', 'stockViewProvider.ts'), 'utf8');
+const src = `${webview}\n${provider}`;
 
 describe('webview holding wiring', () => {
   it('无持仓时汇总函数必须返回空串，保证零足迹', () => {

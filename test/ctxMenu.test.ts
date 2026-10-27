@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const src = readFileSync(join(import.meta.dir, '..', 'src', 'stockViewProvider.ts'), 'utf8');
+const src = readFileSync(join(import.meta.dir, '..', 'src', 'webviewHtml.ts'), 'utf8');
 
 describe('webview context menu', () => {
   it('老板模式灰度不能加在 body 上（filter 会成为 fixed 后代的包含块）', () => {
