@@ -12,7 +12,7 @@ import {
   isPreOpen,
   isTradingDay,
 } from './dataSource';
-import { IntradayBook } from './intraday';
+import { IntradayBook, IntradaySnapshot } from './intraday';
 import { Store } from './store';
 import { RefreshManager } from './refreshManager';
 import { normalizeSortMode, orderQuotes, SortMode } from './order';
@@ -83,6 +83,10 @@ const MINUTE_INTERVAL_MS = 60_000;
 const BREADTH_INTERVAL_MS = 15_000;
 /** 排序方式持久化键。 */
 const SORT_MODE_KEY = 'sortMode';
+/** 日内快照持久化键。 */
+const INTRADAY_KEY = 'intraday.v1';
+/** 快照写入节流：行情每 3 秒刷新，没必要每次都写 Memento。 */
+const INTRADAY_SAVE_MS = 60_000;
 
 const WEBVIEW_CSS = `
 :root{--up:#E15241;--down:#2EA46E}
@@ -207,6 +211,8 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   private breadth: MarketBreadth | null = null;
   private lastBreadthAt = 0;
   private readonly intraday = new IntradayBook();
+  private intradayDirty = false;
+  private saveTimer: NodeJS.Timeout | null = null;
   private error: string | null = null;
   private warn: string | null = null;
   private sortMode: SortMode = 'manual';
@@ -219,9 +225,11 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly store: Store,
     private readonly onStatusBarChanged?: () => void,
-    private readonly sortState?: vscode.Memento,
+    private readonly state?: vscode.Memento,
   ) {
-    this.sortMode = normalizeSortMode(this.sortState?.get(SORT_MODE_KEY));
+    this.sortMode = normalizeSortMode(this.state?.get(SORT_MODE_KEY));
+    // 先恢复上次会话的日内序列，首次 push 即可出图，不必等分时接口
+    this.intraday.restore(this.state?.get<IntradaySnapshot>(INTRADAY_KEY));
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -305,6 +313,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       void this.refreshIpo();
     } else {
       this.stopMinuteTimer();
+      this.flushIntraday();
     }
   }
 
@@ -318,6 +327,34 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       clearInterval(this.minuteTimer);
       this.minuteTimer = null;
     }
+  }
+
+  /** 标记日内序列已变化，节流写入持久化快照。 */
+  private scheduleIntradaySave(): void {
+    if (!this.state) {
+      return;
+    }
+    this.intradayDirty = true;
+    if (this.saveTimer) {
+      return;
+    }
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.flushIntraday();
+    }, INTRADAY_SAVE_MS);
+  }
+
+  /** 立即落盘；隐藏面板或停用时调用，避免丢掉最后一次变化。 */
+  private flushIntraday(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    if (!this.intradayDirty || !this.state) {
+      return;
+    }
+    this.intradayDirty = false;
+    void this.state.update(INTRADAY_KEY, this.intraday.snapshot());
   }
 
   private async refreshMinute(): Promise<void> {
@@ -373,6 +410,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
         }),
       );
       if (dirty) {
+        this.scheduleIntradaySave();
         this.push();
       }
     } finally {
@@ -386,7 +424,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     this.sortMode = next;
-    void this.sortState?.update(SORT_MODE_KEY, next);
+    void this.state?.update(SORT_MODE_KEY, next);
     this.push();
   }
 
@@ -508,6 +546,7 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
 
   dispose(): void {
     this.stopMinuteTimer();
+    this.flushIntraday();
     this.manager?.dispose();
   }
 
@@ -552,7 +591,9 @@ export class StockViewProvider implements vscode.WebviewViewProvider {
     if (showMarket) {
       void this.refreshBreadth();
     }
-    this.intraday.recordQuotes([...this.quotes, ...this.indexQuotes]);
+    if (this.intraday.recordQuotes([...this.quotes, ...this.indexQuotes])) {
+      this.scheduleIntradaySave();
+    }
     this.push();
   }
 

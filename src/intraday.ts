@@ -32,6 +32,21 @@ interface IntradayEntry {
 const SEED_GAP_MIN = 5;
 /** 本地分钟桶上限（一个交易日 240 分钟）。 */
 const LIVE_MAX = 240;
+/** 快照保留点数上限：240 分钟 + 15:00 收尾点。 */
+const SNAPSHOT_MAX = LIVE_MAX + 1;
+
+/** 单个标的的持久化快照。只存序列本身，不存完整分时 payload。 */
+export interface IntradaySnapshotEntry {
+  date: string;
+  prevClose: number;
+  /** [HHMM, 价格]，按时间升序 */
+  points: [string, number][];
+}
+
+export interface IntradaySnapshot {
+  v: 1;
+  entries: Record<string, IntradaySnapshotEntry>;
+}
 
 function newEntry(date: string, prevClose: number): IntradayEntry {
   return { date, prevClose, seed: null, live: [], gap: 'ok', done: false, seedKey: '' };
@@ -156,15 +171,25 @@ export class IntradayBook {
     }
     const today = beijingDateStr(now);
     const entry = this.entries.get(symbol);
-    if (!entry || entry.date !== today || !entry.seed) {
+    if (!entry || entry.date !== today) {
       return true;
     }
     const data = this.merged(symbol, now);
-    if (!data || data.points.length === 0) {
+    if (!data || data.points.length < 2) {
       return true;
     }
     // 首点晚于 09:30 说明缺开盘段
     if (sessionMinute(data.points[0].time) > 0) {
+      return true;
+    }
+    // 恢复快照后行情从当前分钟续写，种子与行情之间可能有空档
+    const seedLast = entry.seed?.points[entry.seed.points.length - 1];
+    const liveFirst = entry.live[0];
+    if (
+      seedLast &&
+      liveFirst &&
+      sessionMinute(liveFirst.time) - sessionMinute(seedLast.time) > SEED_GAP_MIN
+    ) {
       return true;
     }
     const current = sessionMinute(beijingTimeStr(now).slice(0, 4));
@@ -234,6 +259,92 @@ export class IntradayBook {
       return entry.live.length >= 2 ? 'ok' : entry.gap;
     }
     return entry?.gap ?? 'ok';
+  }
+
+  /**
+   * 导出可持久化的日内快照。
+   * 交易时段只导出当天，非交易日保留最近交易日；点数不足两个的画不出图，直接丢弃。
+   */
+  snapshot(now: Date = new Date()): IntradaySnapshot {
+    const entries: Record<string, IntradaySnapshotEntry> = {};
+    const today = beijingDateStr(now);
+    for (const [symbol, entry] of this.entries) {
+      if (!entry.date || entry.date > today) {
+        continue;
+      }
+      if (isTradingDay(now) && entry.date !== today) {
+        continue;
+      }
+      if (!(entry.prevClose > 0)) {
+        continue;
+      }
+      const data = this.merged(symbol, now);
+      if (!data || data.points.length < 2) {
+        continue;
+      }
+      entries[symbol] = {
+        date: entry.date,
+        prevClose: entry.prevClose,
+        points: data.points
+          .slice(-SNAPSHOT_MAX)
+          .map((p) => [p.time, p.price] as [string, number]),
+      };
+    }
+    return { v: 1, entries };
+  }
+
+  /**
+   * 恢复持久化快照，供打开面板时立即出图。
+   * 只接受当天（非交易日接受最近交易日）且结构合法的条目，损坏数据静默忽略。
+   */
+  restore(snapshot: IntradaySnapshot | null | undefined, now: Date = new Date()): void {
+    if (!snapshot || snapshot.v !== 1 || !snapshot.entries || typeof snapshot.entries !== 'object') {
+      return;
+    }
+    const today = beijingDateStr(now);
+    for (const [symbol, raw] of Object.entries(snapshot.entries)) {
+      if (!symbol || !raw || typeof raw !== 'object') {
+        continue;
+      }
+      const { date, prevClose, points: rawPoints } = raw;
+      if (typeof date !== 'string' || !/^\d{8}$/.test(date) || date > today) {
+        continue;
+      }
+      if (isTradingDay(now) && date !== today) {
+        continue;
+      }
+      if (typeof prevClose !== 'number' || !Number.isFinite(prevClose) || prevClose <= 0) {
+        continue;
+      }
+      if (!Array.isArray(rawPoints)) {
+        continue;
+      }
+      const points: MinutePoint[] = [];
+      for (const p of rawPoints) {
+        if (!Array.isArray(p)) {
+          continue;
+        }
+        const [time, price] = p as [unknown, unknown];
+        if (typeof time !== 'string' || !/^\d{4}$/.test(time)) {
+          continue;
+        }
+        if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+          continue;
+        }
+        // 保持升序去重，避免损坏数据把折线画成回环
+        if (points.length > 0 && time <= points[points.length - 1].time) {
+          continue;
+        }
+        points.push({ time, price });
+      }
+      if (points.length < 2) {
+        continue;
+      }
+      const entry = newEntry(date, prevClose);
+      entry.seed = { date, points };
+      entry.seedKey = seedKey(entry.seed);
+      this.entries.set(symbol, entry);
+    }
   }
 
   has(symbol: string): boolean {

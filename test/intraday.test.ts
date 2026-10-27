@@ -144,4 +144,60 @@ describe('IntradayBook', () => {
     book.prune(new Set());
     expect(book.has(SYM)).toBe(false);
   });
+
+  it('快照可恢复当日序列，交易时段不恢复旧日期，非交易日允许', () => {
+    const book = new IntradayBook();
+    book.recordQuotes([quote(10.1, { time: '100000' })], bj(10, 0));
+    book.applySeed(
+      SYM,
+      minute([
+        ['0930', 10],
+        ['1000', 10.1],
+      ]),
+      quote(10.1, { time: '100000' }),
+      bj(10, 0),
+    );
+    const snapshot = book.snapshot(bj(10, 0));
+
+    const sameDay = new IntradayBook();
+    sameDay.restore(snapshot, bj(10, 0));
+    expect(sameDay.has(SYM)).toBe(true);
+    expect(sameDay.spark(SYM, quote(10.1, { time: '100000' }), bj(10, 0))).not.toBeNull();
+    // 快照已覆盖到当前分钟，恢复后不应再补种子
+    expect(sameDay.needsSeed(SYM, quote(10.1, { time: '100000' }), bj(10, 0))).toBe(false);
+
+    const nextDay = new IntradayBook();
+    nextDay.restore(snapshot, new Date(Date.UTC(2026, 9, 28, 2, 0)));
+    expect(nextDay.has(SYM)).toBe(false);
+
+    const weekend = new IntradayBook();
+    weekend.restore(snapshot, new Date(Date.UTC(2026, 9, 31, 2, 0)));
+    expect(weekend.has(SYM)).toBe(true);
+  });
+
+  it('忽略损坏的快照数据', () => {
+    const book = new IntradayBook();
+    book.restore({ v: 1, entries: { [SYM]: { date: 'bad', prevClose: 0, points: [] } } }, bj(10, 0));
+    expect(book.has(SYM)).toBe(false);
+  });
+
+  it('恢复后行情从当前分钟续写时，补上快照与行情之间的空档', () => {
+    const book = new IntradayBook();
+    book.recordQuotes([quote(10.1, { time: '100000' })], bj(10, 0));
+    book.applySeed(
+      SYM,
+      minute([
+        ['0930', 10],
+        ['1000', 10.1],
+      ]),
+      quote(10.1, { time: '100000' }),
+      bj(10, 0),
+    );
+    const restored = new IntradayBook();
+    restored.restore(book.snapshot(bj(10, 0)), bj(10, 0));
+
+    // 午休后重开，行情直接续到 13:00，中间 10:01–12:59 需要补种子
+    restored.recordQuotes([quote(10.2, { time: '130000' })], bj(13, 0));
+    expect(restored.needsSeed(SYM, quote(10.2, { time: '130000' }), bj(13, 0))).toBe(true);
+  });
 });
