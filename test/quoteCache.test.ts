@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import * as dataSource from '../src/dataSource';
 
 type Q = {
   symbol: string;
@@ -26,7 +27,11 @@ function makeQ(symbol: string): Q {
 
 const calls: string[][] = [];
 
+// mock.module 是进程级的，且不会随文件结束恢复。只返回 fetchQuotes 会把 dataSource
+// 的其余导出从模块表里抹掉，之后同批次加载的测试文件就链接失败（报 Export named ... not found，
+// 触发与否取决于目录遍历顺序，Linux 上有稳定概率）。先整体铺开真实导出，再覆盖要打桩的那个。
 mock.module('../src/dataSource', () => ({
+  ...dataSource,
   fetchQuotes: async (symbols: string[]): Promise<Q[]> => {
     calls.push([...symbols]);
     return symbols.map(makeQ);
