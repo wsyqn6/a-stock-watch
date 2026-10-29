@@ -1,5 +1,9 @@
 import { fetchWithTimeout } from './http';
 import { trimCache } from './util';
+import type { KlineSeries, MinuteSeriesPoint } from './chartView';
+
+/** 图表数据包类型随 dataSource 一并导出，调用方不必同时引 chartView。 */
+export type { KlineSeries, MinuteSeriesPoint };
 
 export interface KlinePoint {
   date: string;
@@ -14,14 +18,16 @@ const KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=';
 
 export type KlinePeriod = 'day' | 'week' | 'month';
 
-export const KLINE_CANDLE_COUNT = 60;
-
 /** 收盘价均线周期。 */
 const MA_PERIODS = [5, 10, 20] as const;
 /** 均量线周期。 */
 const VOL_MA_PERIOD = 5;
-/** 拉取根数：显示窗口外多取 MA20 起点所需历史，使均线覆盖整个可见区间。 */
-export const KLINE_FETCH_COUNT = KLINE_CANDLE_COUNT + MA_PERIODS[2] - 1;
+
+/**
+ * 一次抓取的 K 线根数。webview 按面板宽度决定默认可见根数（约每根 6px），
+ * 这里给宽面板留足历史，也给放大后回看留出余量。
+ */
+export const KLINE_FETCH_COUNT = 240;
 
 const klineCache = new Map<string, { data: KlinePoint[]; ts: number }>();
 const KLINE_TTL_MS = 60_000;
@@ -500,16 +506,8 @@ export function buildSpark(data: MinuteData, prevClose: number): SparkData | nul
   return { color, line, area, baseY };
 }
 
-export interface MinuteDetailPoint {
-  time: string;
-  price: number;
-  /** 累计均价；数据源缺成交额时为 null（如北交所 3 字段行） */
-  avg: number | null;
-  volume: number;
-}
-
-export function buildMinuteSeries(data: MinuteData): MinuteDetailPoint[] {
-  const out: MinuteDetailPoint[] = [];
+export function buildMinuteSeries(data: MinuteData): MinuteSeriesPoint[] {
+  const out: MinuteSeriesPoint[] = [];
   let lastVol = 0;
   let haveLast = false;
   for (const p of data.points) {
@@ -519,184 +517,16 @@ export function buildMinuteSeries(data: MinuteData): MinuteDetailPoint[] {
     const volume = haveLast ? Math.max(0, p.vol - lastVol) : 0;
     lastVol = p.vol;
     haveLast = true;
-    out.push({ time: p.time, price: p.price, avg: p.amt != null ? p.amt / (p.vol * 100) : null, volume });
+    out.push({
+      time: p.time,
+      price: p.price,
+      avg: p.amt != null ? p.amt / (p.vol * 100) : null,
+      volume,
+      // 交易时段规则只在 host 算一次，webview 布局直接吃序号
+      sm: sessionMinute(p.time),
+    });
   }
   return out;
-}
-
-export interface MinuteChartLayout {
-  width: number;
-  totalH: number;
-  mainH: number;
-  volH: number;
-  /** 绘图区左起点（x 轴左侧留白） */
-  padL: number;
-  /** 绘图区宽度（不含左右轴留白），右端 x = padL + plotW */
-  plotW: number;
-  /** 成交量窗格底边 y（也是 x 轴标签带顶边） */
-  volBottom: number;
-  priceLine: string;
-  avgLine: string | null;
-  baseY: number;
-  bars: { x: number; w: number; y: number; h: number; cls: 'up' | 'down' }[];
-  xTicks: { x: number; label: string }[];
-  yTicks: { y: number; label: string }[];
-  pts: { x: number; y: number; ay: number | null; price: number; avg: number | null; volume: number; time: string }[];
-  lastPrice: number;
-  lastAvg: number | null;
-  /** 涨停/跌停线 y 坐标（价格在当日范围内时提供，否则 undefined） */
-  limitUpY?: number;
-  limitDownY?: number;
-}
-
-const CHART_W = 640;
-const CHART_PAD_L = 6;
-const CHART_AXIS_R = 46;
-const CHART_MAIN_H = 200;
-const CHART_VOL_H = 56;
-const CHART_GAP = 6;
-/** 成交量窗格下方的 x 轴标签带高度，避免时间文字压在量柱上。 */
-const CHART_LABEL_H = 14;
-const CHART_VOL_BOTTOM = CHART_MAIN_H + CHART_GAP + CHART_VOL_H;
-const CHART_TOTAL_H = CHART_VOL_BOTTOM + CHART_LABEL_H;
-const CHART_Y_DIVS = 4;
-
-interface ChartScale {
-  yMin: number;
-  yMax: number;
-  y: (p: number) => number;
-  yTicks: { y: number; label: string }[];
-}
-
-/** 构建主图纵向比例尺（含刻度标签）。reversed 控制标签方向：true=刻度顶为最大值（K线），false=底为最小值（分时）。digits 控制价格标签小数位。 */
-function buildChartScale(lo: number, hi: number, reversed: boolean, digits = 2): ChartScale {
-  let min = lo;
-  let max = hi;
-  if (max - min < 1e-9) {
-    max += 1;
-    min -= 1;
-  }
-  const pad = (max - min) * 0.05;
-  const yMin = min - pad;
-  const yMax = max + pad;
-  const y = (p: number) => CHART_MAIN_H - ((p - yMin) / (yMax - yMin)) * CHART_MAIN_H;
-  const yTicks = Array.from({ length: CHART_Y_DIVS + 1 }, (_, i) => {
-    const ratio = reversed ? (CHART_Y_DIVS - i) / CHART_Y_DIVS : i / CHART_Y_DIVS;
-    return {
-      y: (CHART_MAIN_H * i) / CHART_Y_DIVS,
-      label: (yMin + (yMax - yMin) * ratio).toFixed(digits),
-    };
-  });
-  return { yMin, yMax, y, yTicks };
-}
-
-export function buildMinuteChart(
-  data: MinuteData,
-  prevClose: number,
-  limits?: { limitUp?: number; limitDown?: number },
-  digits = 2,
-): MinuteChartLayout | null {
-  const series = buildMinuteSeries(data);
-  if (series.length < 2) {
-    return null;
-  }
-  const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
-  const x = (sm: number) => CHART_PAD_L + (sm / SESSION_TOTAL) * plotW;
-  const priceMin = Math.min(...series.map((p) => p.price));
-  const priceMax = Math.max(...series.map((p) => p.price));
-  const slack = Math.max(priceMax - priceMin, priceMin * 0.5, 1e-6);
-  // 均价需全量有效（含单位合理）才绘制，缺成交额的点使 avg 线整体隐藏
-  const avgUsable = series.every(
-    (p) => p.avg !== null && p.avg >= priceMin - slack && p.avg <= priceMax + slack,
-  );
-  let lo = prevClose;
-  let hi = prevClose;
-  for (const p of series) {
-    lo = Math.min(lo, p.price);
-    hi = Math.max(hi, p.price);
-    if (avgUsable && p.avg !== null) {
-      lo = Math.min(lo, p.avg);
-      hi = Math.max(hi, p.avg);
-    }
-  }
-  // 涨跌停价仅在贴近当日价格区间时纳入坐标范围，避免异常值或指数（无涨跌停）拉爆图表。
-  // 阈值取 25% 价格幅，覆盖主板 10% / 创业板科创板 20% 涨跌停。
-  const span = Math.max(hi - lo, prevClose * 0.25, 1e-6);
-  const limitUp = limits?.limitUp;
-  const limitDown = limits?.limitDown;
-  const limitUpIn = limitUp !== undefined && limitUp >= lo - span && limitUp <= hi + span;
-  const limitDownIn = limitDown !== undefined && limitDown >= lo - span && limitDown <= hi + span;
-  if (limitUpIn) hi = Math.max(hi, limitUp as number);
-  if (limitDownIn) lo = Math.min(lo, limitDown as number);
-  const { y, yTicks } = buildChartScale(lo, hi, false, digits);
-  const priceLine = series
-    .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.price).toFixed(1)}`)
-    .join(' ');
-  const avgLine = avgUsable
-    ? series
-        .map((p) => `${x(sessionMinute(p.time)).toFixed(1)},${y(p.avg as number).toFixed(1)}`)
-        .join(' ')
-    : null;
-  const baseY = y(prevClose);
-  const vmax = Math.max(...series.map((p) => p.volume), 1);
-  // 柱宽按时间槽（每分钟）取，不随 series 长度缩放：缺量分钟被跳过时若按点数摊宽度，
-  // 柱宽会大于时间槽间距，相邻柱互相重叠。柱在时间槽内居中，与价格折线顶点对齐。
-  const bw = Math.max(0.5, plotW / SESSION_TOTAL);
-  const bars = series.map(
-    (p): { x: number; w: number; y: number; h: number; cls: 'up' | 'down' } => {
-      const h = p.volume > 0 ? (p.volume / vmax) * (CHART_VOL_H - 2) : 0;
-      const cx = CHART_PAD_L + ((sessionMinute(p.time) + 0.5) / SESSION_TOTAL) * plotW;
-      return {
-        x: cx - bw / 2,
-        w: bw,
-        y: CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - h),
-        h,
-        cls: p.price >= prevClose ? 'up' : 'down',
-      };
-    },
-  );
-  const xTicks = [0, 60, 120, 180, 240].map((sm) => ({ x: x(sm), label: smLabel(sm) }));
-  const pts = series.map((p) => {
-    const sx = x(sessionMinute(p.time));
-    return {
-      x: sx,
-      y: y(p.price),
-      ay: avgUsable && p.avg !== null ? y(p.avg) : null,
-      price: p.price,
-      avg: avgUsable ? p.avg : null,
-      volume: p.volume,
-      time: p.time,
-    };
-  });
-  const last = series[series.length - 1];
-  return {
-    width: CHART_W,
-    totalH: CHART_TOTAL_H,
-    mainH: CHART_MAIN_H,
-    volH: CHART_VOL_H,
-    padL: CHART_PAD_L,
-    plotW,
-    volBottom: CHART_VOL_BOTTOM,
-    priceLine,
-    avgLine,
-    baseY,
-    bars,
-    xTicks,
-    yTicks,
-    pts,
-    lastPrice: last.price,
-    lastAvg: avgUsable ? last.avg : null,
-    limitUpY: limitUpIn ? y(limitUp as number) : undefined,
-    limitDownY: limitDownIn ? y(limitDown as number) : undefined,
-  };
-}
-
-function smLabel(sm: number): string {
-  if (sm === 0) return '09:30';
-  if (sm === 60) return '10:30';
-  if (sm === 120) return '11:30';
-  if (sm === 180) return '14:00';
-  return '15:00';
 }
 
 const SESSION_TOTAL = 240;
@@ -847,54 +677,6 @@ function samplePoints(points: MinutePoint[], step: number): MinutePoint[] {
   return out;
 }
 
-export interface KlineCandle {
-  x: number;
-  w: number;
-  bodyY: number;
-  bodyH: number;
-  wickY1: number;
-  wickY2: number;
-  cls: 'up' | 'down';
-  date: string;
-  open: number;
-  close: number;
-  high: number;
-  low: number;
-  volume: number;
-}
-
-export interface KlineLayout {
-  width: number;
-  totalH: number;
-  mainH: number;
-  volH: number;
-  /** 绘图区左起点（x 轴左侧留白） */
-  padL: number;
-  /** 绘图区宽度（不含左右轴留白），右端 x = padL + plotW */
-  plotW: number;
-  /** 成交量窗格底边 y（也是 x 轴标签带顶边） */
-  volBottom: number;
-  candles: KlineCandle[];
-  volBars: { x: number; w: number; y: number; h: number; cls: 'up' | 'down' }[];
-  xTicks: { x: number; label: string }[];
-  yTicks: { y: number; label: string }[];
-  lastPrice: number;
-  /** 收盘价均线折线（点数不足该周期时为 null） */
-  maLines: { n: number; points: string | null }[];
-  /** 与 candles 对齐的每根收盘均价（窗口前数据不足时为 null），供图例与十字光标取值 */
-  maValues: { n: number; vals: (number | null)[] }[];
-  /** 5 日均量折线（点数不足 5 根时为 null） */
-  volMaLine: string | null;
-  /** 与 candles 对齐的每根 5 日均量 */
-  volMaVals: (number | null)[];
-}
-
-/** K线单根蜡烛最大宽度（px，viewBox 单位）。数据少时限制宽度，避免单根蜡烛撑满整图。 */
-const CANDLE_W_MAX = 14;
-/** 相邻刻度最小像素间隔，低于此则跳标，防止 x 轴文字重叠。 */
-const MIN_TICK_PX = 56;
-
-/** 滚动累加滑动均值：前置不足 period 的位置为 null，整体 O(n)。 */
 function movingAverage(values: number[], period: number): (number | null)[] {
   const out: (number | null)[] = new Array(values.length).fill(null);
   let sum = 0;
@@ -910,107 +692,24 @@ function movingAverage(values: number[], period: number): (number | null)[] {
   return out;
 }
 
-/** 均值折线：把全量均值映射到自 start 起的可见窗口坐标；无有效点时为 null。 */
-function maPolyline(
-  mas: (number | null)[],
-  start: number,
-  x: (i: number) => number,
-  y: (v: number) => number,
-): string | null {
-  const pts: string[] = [];
-  for (let i = start; i < mas.length; i++) {
-    const v = mas[i];
-    if (v != null) {
-      pts.push(`${x(i - start).toFixed(1)},${y(v).toFixed(1)}`);
-    }
-  }
-  return pts.length > 0 ? pts.join(' ') : null;
-}
-
-/** 构建 K 线布局。displayCount 指定只渲染末尾多少根，均线仍按全量历史计算。无数据返回 null（空极值会产出 NaN 坐标）。 */
-export function buildKlineLayout(
-  klines: KlinePoint[],
-  displayCount?: number,
-  digits = 2,
-): KlineLayout | null {
-  if (klines.length === 0) {
-    return null;
-  }
-  const start =
-    typeof displayCount === 'number' && displayCount < klines.length
-      ? klines.length - displayCount
-      : 0;
-  const view = klines.slice(start);
-  const n = view.length;
-  const plotW = CHART_W - CHART_PAD_L - CHART_AXIS_R;
-  const cw = Math.min(plotW / n, CANDLE_W_MAX);
-  const bw = cw * 0.65;
-  const cx = (i: number) => CHART_PAD_L + i * cw + cw / 2;
-
-  let lo = Infinity;
-  let hi = -Infinity;
-  let vmax = 0;
-  for (const k of view) {
-    if (k.low < lo) lo = k.low;
-    if (k.high > hi) hi = k.high;
-    if (k.volume > vmax) vmax = k.volume;
-  }
-  const { y, yTicks } = buildChartScale(lo, hi, true, digits);
-
-  // 按像素间隔稀疏刻度，避免少数据时 label 拥挤重叠。
-  const labelStep = Math.max(1, Math.floor(MIN_TICK_PX / cw));
-  const xTicks: { x: number; label: string }[] = [];
-  for (let i = 0; i < n; i += labelStep) {
-    xTicks.push({ x: CHART_PAD_L + i * cw + cw / 2, label: view[i].date.slice(5) });
-  }
-
-  const candles: KlineCandle[] = [];
-  const volBars: KlineLayout['volBars'] = [];
-
-  for (let i = 0; i < n; i++) {
-    const k = view[i];
-    const x = CHART_PAD_L + i * cw + (cw - bw) / 2;
-    const cls: 'up' | 'down' = k.close >= k.open ? 'up' : 'down';
-    const bodyY = y(Math.max(k.open, k.close));
-    const bodyH = y(Math.min(k.open, k.close)) - bodyY;
-    candles.push({
-      x, w: bw, bodyY, bodyH: Math.max(bodyH, 1),
-      wickY1: y(k.high), wickY2: y(k.low), cls,
-      date: k.date, open: k.open, close: k.close,
-      high: k.high, low: k.low, volume: k.volume,
-    });
-    const vh = k.volume > 0 ? (k.volume / vmax) * (CHART_VOL_H - 2) : 0;
-    volBars.push({
-      x, w: bw,
-      y: CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - vh),
-      h: vh, cls,
-    });
-  }
-
-  const volY = (v: number) =>
-    CHART_MAIN_H + CHART_GAP + (CHART_VOL_H - (v / vmax) * (CHART_VOL_H - 2));
-  const closeMas = MA_PERIODS.map((p) => movingAverage(klines.map((k) => k.close), p));
-  const volMaFull = movingAverage(klines.map((k) => k.volume), VOL_MA_PERIOD);
-
+/**
+ * K 线数据包：全量历史 + 按全量算好的均线值。
+ * 几何留给 webview（缩放/自适应尺寸都在本地），host 只做数据与指标计算。
+ */
+export function buildKlineSeries(klines: KlinePoint[]): KlineSeries {
+  const closes = klines.map((k) => k.close);
+  const vols = klines.map((k) => k.volume);
   return {
-    width: CHART_W,
-    totalH: CHART_TOTAL_H,
-    mainH: CHART_MAIN_H,
-    volH: CHART_VOL_H,
-    padL: CHART_PAD_L,
-    plotW,
-    volBottom: CHART_VOL_BOTTOM,
-    candles,
-    volBars,
-    xTicks,
-    yTicks,
-    lastPrice: view[n - 1].close,
-    maLines: closeMas.map((vals, idx) => ({
-      n: MA_PERIODS[idx],
-      points: maPolyline(vals, start, cx, y),
+    points: klines.map((k) => ({
+      date: k.date,
+      open: k.open,
+      close: k.close,
+      high: k.high,
+      low: k.low,
+      volume: k.volume,
     })),
-    maValues: closeMas.map((vals, idx) => ({ n: MA_PERIODS[idx], vals: vals.slice(start) })),
-    volMaLine: maPolyline(volMaFull, start, cx, volY),
-    volMaVals: volMaFull.slice(start),
+    maValues: MA_PERIODS.map((n) => ({ n, vals: movingAverage(closes, n) })),
+    volMaVals: movingAverage(vols, VOL_MA_PERIOD),
   };
 }
+

@@ -1,20 +1,19 @@
 import * as vscode from 'vscode';
 import {
   StockQuote,
-  MinuteChartLayout,
-  KlineLayout,
+  KlineSeries,
+  MinuteSeriesPoint,
   KlinePeriod,
   fetchKline,
   getMinuteCached,
-  buildMinuteChart,
-  buildKlineLayout,
+  buildMinuteSeries,
+  buildKlineSeries,
   clearKlineCache,
   isTradingTime,
   isPreOpen,
   resolveMinuteGap,
   isMinuteFinal,
   GAP_TEXT,
-  KLINE_CANDLE_COUNT,
   KLINE_FETCH_COUNT,
 } from './dataSource';
 import { priceDecimals } from './util';
@@ -62,14 +61,15 @@ export class MinuteDetailPanel {
   private timer: NodeJS.Timeout | null = null;
   private symbol: string;
   private quote?: StockQuote;
-  private layout: MinuteChartLayout | null = null;
+  /** 分时序列（几何由 webview 现算，host 只保留数据） */
+  private minuteSeries: MinuteSeriesPoint[] = [];
   private layoutFp = '';
   /** 当日分时已定格（覆盖收盘或收盘后宽限期），收盘后不再定时刷新 */
   private minuteFinal = false;
   private minuteDate = '';
   private volTotal = 0;
   private amtTotal = 0;
-  private klineLayouts = new Map<KlinePeriod, KlineLayout>();
+  private klineSeries = new Map<KlinePeriod, KlineSeries>();
   private error: string | null = null;
   /** 仅图表区的提示（停牌/退市/零成交/缺失），不吞头部与资讯 */
   private chartError: string | null = null;
@@ -123,7 +123,7 @@ export class MinuteDetailPanel {
         // reveal 复用到其他视图列时，webview 内容可能被重置或 postMessage
         // 在切换瞬间被丢弃。面板重新可见时，补推一次当前已加载的数据，
         // 避免「不关闭点另一个 → 空白」。
-        if (this.ready && (this.layout !== null || this.quote)) {
+        if (this.ready && (this.minuteSeries.length > 0 || this.quote)) {
           this.push();
         }
       } else {
@@ -150,12 +150,12 @@ export class MinuteDetailPanel {
     if (symbol) {
       if (this.symbol !== symbol) {
         // 切换标的时丢弃旧图与错误，避免上一次成功的布局泄漏到新标的
-        this.layout = null;
+        this.minuteSeries = [];
         this.layoutFp = '';
         this.error = null;
         this.chartError = null;
         this.minuteFinal = false;
-        this.klineLayouts.clear();
+        this.klineSeries.clear();
         clearKlineCache(symbol);
         this.newsTs = 0;
       }
@@ -169,8 +169,7 @@ export class MinuteDetailPanel {
     if (this.loading) {
       this.pendingSymbol = true;
       return;
-    }
-    this.loading = true;
+    }    this.loading = true;
     try {
       await this.fetchData(true);
     } finally {
@@ -238,19 +237,11 @@ export class MinuteDetailPanel {
       const gap = resolveMinuteGap(data, q.state);
       this.minuteFinal = isMinuteFinal(data, gap);
       if (fp !== this.layoutFp) {
-        const layout = buildMinuteChart(
-          data,
-          q.prevClose,
-          {
-            limitUp: q.limitUp,
-            limitDown: q.limitDown,
-          },
-          priceDecimals(this.symbol, this.quote?.price),
-        );
+        this.minuteSeries = buildMinuteSeries(data);
         // 出图失败仅作图表区提示（停牌/退市/零成交/缺失），头部与资讯照常渲染；
         // 盘前无当日数据不算缺失，提示「未开盘」
-        this.layout = layout;
-        this.chartError = layout ? null : gap === 'ok' && isPreOpen() ? '未开盘' : GAP_TEXT[gap];
+        const drawable = this.minuteSeries.length >= 2;
+        this.chartError = drawable ? null : gap === 'ok' && isPreOpen() ? '未开盘' : GAP_TEXT[gap];
         this.layoutFp = fp;
       }
       let vol = 0;
@@ -267,9 +258,9 @@ export class MinuteDetailPanel {
       this.amtTotal = amt;
       this.minuteDate = data.date;
     } catch (err) {
-      // 同标的刷新失败时保留上一张可用图；切换标的时 layout 已被 load 清空，
+      // 同标的刷新失败时保留上一张可用图；切换标的时序列已被 load 清空，
       // 走到这里必然给出提示（图表区），避免旧图残留
-      if (this.layout === null) {
+      if (this.minuteSeries.length === 0) {
         this.chartError = err instanceof Error ? err.message : '加载失败';
       }
     }
@@ -301,22 +292,27 @@ export class MinuteDetailPanel {
     }
   }
 
-  /** 按需拉取并缓存指定周期的 K 线布局。force 仅绕过本层布局缓存，数据仍受数据源 60s 缓存约束。 */
-  private async ensureKline(period: KlinePeriod, force = false): Promise<void> {    if (!this.ready) {
+  /** 按需拉取并缓存指定周期的 K 线数据包。force 仅绕过本层缓存，数据仍受数据源 60s 缓存约束。 */
+  private async ensureKline(period: KlinePeriod, force = false): Promise<void> {
+    if (!this.ready) {
       return;
     }
-    if (!force && this.klineLayouts.has(period)) {
+    if (!force && this.klineSeries.has(period)) {
       return;
     }
     try {
       const all = await fetchKline(this.symbol, KLINE_FETCH_COUNT, period);
-      const layout = buildKlineLayout(all, KLINE_CANDLE_COUNT, priceDecimals(this.symbol, this.quote?.price));
-      if (all.length < 2 || !layout) {
+      if (all.length < 2) {
         void this.panel.webview.postMessage({ type: 'kline', period, error: 'K线数据不足' });
         return;
       }
-      this.klineLayouts.set(period, layout);
-      void this.panel.webview.postMessage({ type: 'kline', period, layout });
+      const series = buildKlineSeries(all);
+      this.klineSeries.set(period, series);
+      void this.panel.webview.postMessage({
+        type: 'kline',
+        period,
+        series,
+      });
     } catch (err) {
       void this.panel.webview.postMessage({
         type: 'kline',
@@ -357,9 +353,10 @@ export class MinuteDetailPanel {
       avgPrice: q?.avgPrice,
       outerVol: q?.outerVol,
       innerVol: q?.innerVol,
-      layout: this.layout,
+      digits: priceDecimals(this.symbol, q?.price),
+      minuteSeries: this.minuteSeries,
       layoutFp: this.layoutFp,
-      klineLayouts: this.pushKlineCache ? Object.fromEntries(this.klineLayouts) : undefined,
+      klineSeries: this.pushKlineCache ? Object.fromEntries(this.klineSeries) : undefined,
       showNews: config.showStockNews(),
       volTotal: this.volTotal,
       amtTotal: this.amtTotal,

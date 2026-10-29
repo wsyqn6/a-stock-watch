@@ -9,12 +9,11 @@ import {
   minuteSessionComplete,
   isMinuteFinal,
   buildMinuteSeries,
-  buildMinuteChart,
-  buildKlineLayout,
   minuteGapStatus,
   resolveMinuteGap,
   isPreOpen,
   KlinePoint,
+  MinuteData,
   sessionMinute,
   isTradingTime,
   isSessionOver,
@@ -22,6 +21,7 @@ import {
   noteMarketDate,
   SparkData,
 } from '../src/dataSource';
+import { layoutMinuteView } from '../src/chartView';
 
 const SAMPLE = `v_sh600519="1~贵州茅台~600519~1421.50~1400.00~1401.00~30246~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~21.50~1.54~1425.00~1400.00~0~0~0~0~5.03~0~0~0~0~0~0";`;
 const DOWN_SAMPLE = `v_sz000001="1~平安银行~000001~10.00~10.50~10.20~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~-0.50~-4.76~10.50~10.00~0~0~0~0~0~0~0~0~0~0~0~0";`;
@@ -413,6 +413,12 @@ describe('minute series & chart', () => {
     '0932 10.10 400 402800.00',
     '0933 10.00 400 400000.00',
   ];
+  // 几何已移到 chartView（webview 侧同源实现），这里固定 640x276 便于比对
+  const minuteChart = (
+    data: MinuteData,
+    prevClose: number,
+    limits?: { limitUp?: number; limitDown?: number },
+  ) => layoutMinuteView(buildMinuteSeries(data), prevClose, limits, 2, 640, 276);
 
   it('parses cumulative volume and amount', () => {
     const d = parseMinuteResponse(minuteJSON(rows), SYM);
@@ -434,7 +440,7 @@ describe('minute series & chart', () => {
     expect(s[0].avg).toBeNull();
     expect(s[0].volume).toBe(0);
     expect(s[1].volume).toBe(100);
-    const c = buildMinuteChart(d, 10.0);
+    const c = minuteChart(d, 10.0);
     expect(c).not.toBeNull();
     expect(c!.avgLine).toBeNull();
     expect(c!.lastAvg).toBeNull();
@@ -443,7 +449,7 @@ describe('minute series & chart', () => {
   it('computes cumulative average price and per-minute volume', () => {
     const s = buildMinuteSeries(parseMinuteResponse(minuteJSON(rows), SYM));
     expect(s).toHaveLength(4);
-    expect(s[0]).toEqual({ time: '0930', price: 10.0, avg: 10.0, volume: 0 });
+    expect(s[0]).toEqual({ time: '0930', price: 10.0, avg: 10.0, volume: 0, sm: 0 });
     expect(s[1].avg).toBeCloseTo(10.1, 4);
     expect(s[1].volume).toBe(200);
     expect(s[2].avg).toBeCloseTo(10.07, 4);
@@ -459,7 +465,7 @@ describe('minute series & chart', () => {
   });
 
   it('builds a chart layout with line, avg, baseline and volume bars', () => {
-    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0);
+    const c = minuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0);
     expect(c).not.toBeNull();
     expect(c!.priceLine.split(' ')).toHaveLength(4);
     expect(c!.avgLine).toBeTruthy();
@@ -479,7 +485,7 @@ describe('minute series & chart', () => {
 
   it('returns null for insufficient points', () => {
     const d = parseMinuteResponse(minuteJSON(['0930 10.00 100 100000.00']), SYM);
-    expect(buildMinuteChart(d, 10)).toBeNull();
+    expect(minuteChart(d, 10)).toBeNull();
   });
 
   it('drops avg when avg unit mismatches price (index-like)', () => {
@@ -489,7 +495,7 @@ describe('minute series & chart', () => {
       '0932 3890.05 31411251 61233091457.00',
       '0933 3893.92 39690844 79500731107.60',
     ];
-    const c = buildMinuteChart(
+    const c = minuteChart(
       parseMinuteResponse(minuteJSON(indexRows), SYM),
       3900.35,
     )!;
@@ -506,7 +512,7 @@ describe('minute series & chart', () => {
       '0932 3890.05 31411251 61233091457.00',
       '0933 3893.92 39690844 79500731107.60',
     ];
-    const c = buildMinuteChart(
+    const c = minuteChart(
       parseMinuteResponse(minuteJSON(indexRows), SYM),
       3900.35,
     )!;
@@ -515,20 +521,20 @@ describe('minute series & chart', () => {
   });
 
   it('keeps avg when it falls inside the price range', () => {
-    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0)!;
+    const c = minuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0)!;
     expect(c.avgLine).not.toBeNull();
     expect(c.lastAvg).not.toBeNull();
     expect(c.pts[0].avg).not.toBeNull();
   });
 
   it('sizes volume bars by max per-minute volume', () => {
-    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0)!;
+    const c = minuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0)!;
     const maxBar = Math.max(...c.bars.map((b) => b.h));
     expect(maxBar).toBeCloseTo(c.volH - 2, 1);
   });
 
   it('includes limit up/down in the y range when near the price band', () => {
-    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0, {
+    const c = minuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0, {
       limitUp: 11.0,
       limitDown: 9.0,
     })!;
@@ -538,7 +544,7 @@ describe('minute series & chart', () => {
   });
 
   it('drops limit up/down when far from the price band', () => {
-    const c = buildMinuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0, {
+    const c = minuteChart(parseMinuteResponse(minuteJSON(rows), SYM), 10.0, {
       limitUp: 50.0,
       limitDown: 0.1,
     })!;
@@ -548,7 +554,7 @@ describe('minute series & chart', () => {
 
   it('returns null for series with no volume data', () => {
     const d = parseMinuteResponse(minuteJSON(['0930 10.00', '0931 10.10']), SYM);
-    expect(buildMinuteChart(d, 10)).toBeNull();
+    expect(minuteChart(d, 10)).toBeNull();
   });
 });
 
@@ -857,116 +863,5 @@ describe('parseKlineResponse', () => {
     expect(parseKlineResponse('not json', SYM, 'day')).toHaveLength(0);
     expect(parseKlineResponse(JSON.stringify({ data: {} }), SYM, 'day')).toHaveLength(0);
     expect(parseKlineResponse(JSON.stringify({}), SYM, 'day')).toHaveLength(0);
-  });
-});
-
-describe('buildKlineLayout', () => {
-  const klines: KlinePoint[] = [
-    { date: '20260730', open: 10, close: 10.5, high: 10.8, low: 9.8, volume: 1000 },
-    { date: '20260731', open: 10.5, close: 10.2, high: 10.6, low: 10.0, volume: 2000 },
-    { date: '20260803', open: 10.2, close: 10.7, high: 10.9, low: 10.1, volume: 1500 },
-  ];
-
-  it('builds one candle and volume bar per point', () => {
-    const L = buildKlineLayout(klines)!;
-    expect(L.candles).toHaveLength(3);
-    expect(L.volBars).toHaveLength(3);
-    expect(L.lastPrice).toBe(10.7);
-  });
-
-  it('marks up candles (close >= open) as up and down otherwise', () => {
-    const L = buildKlineLayout(klines)!;
-    expect(L.candles[0].cls).toBe('up');
-    expect(L.candles[1].cls).toBe('down');
-    expect(L.candles[2].cls).toBe('up');
-  });
-
-  it('sizes volume bars by max volume', () => {
-    const L = buildKlineLayout(klines)!;
-    const maxBar = Math.max(...L.volBars.map((b) => b.h));
-    expect(maxBar).toBeCloseTo(L.volH - 2, 1);
-  });
-
-  it('produces x-axis ticks and y-axis ticks', () => {
-    const L = buildKlineLayout(klines)!;
-    expect(L.xTicks.length).toBeGreaterThan(0);
-    expect(L.yTicks.length).toBe(5);
-  });
-
-  it('formats y-axis price labels with the given decimals', () => {
-    for (const t of buildKlineLayout(klines)!.yTicks) {
-      expect(t.label.split('.')[1]).toHaveLength(2);
-    }
-    for (const t of buildKlineLayout(klines, undefined, 3)!.yTicks) {
-      expect(t.label.split('.')[1]).toHaveLength(3);
-    }
-  });
-
-  it('outputs null MA lines when fewer candles than period', () => {
-    const L = buildKlineLayout(klines)!;
-    expect(L.maLines).toHaveLength(3);
-    for (const ma of L.maLines) expect(ma.points).toBeNull();
-    expect(L.volMaLine).toBeNull();
-  });
-
-  it('builds MA5 line with enough candles', () => {
-    const many = Array.from({ length: 20 }, (_, i) => ({
-      date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
-      open: 10,
-      close: 10 + i * 0.1,
-      high: 10.5,
-      low: 9.5,
-      volume: 1000 + i * 10,
-    }));
-    const L = buildKlineLayout(many)!;
-    expect(L.maLines[0].n).toBe(5);
-    expect(L.maLines[0].points).not.toBeNull();
-    expect(L.maLines[0].points!.split(' ')).toHaveLength(16);
-    expect(L.maLines[2].points).not.toBeNull();
-    expect(L.volMaLine).not.toBeNull();
-    expect(L.volMaLine!.split(' ')).toHaveLength(16);
-  });
-
-  it('computes per-candle MA values numerically correct', () => {
-    // 收盘价 10,11,…,34，等差数列便于口算均值
-    const closes = Array.from({ length: 25 }, (_, i) => 10 + i);
-    const many: KlinePoint[] = closes.map((c, i) => ({
-      date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
-      open: c, close: c, high: c + 1, low: c - 1, volume: 100,
-    }));
-    const L = buildKlineLayout(many)!;
-    expect(L.maValues.map((m) => m.n)).toEqual([5, 10, 20]);
-    for (const mv of L.maValues) expect(mv.vals).toHaveLength(25);
-    expect(L.maValues[0].vals[3]).toBeNull();
-    expect(L.maValues[0].vals[4]).toBeCloseTo((10 + 11 + 12 + 13 + 14) / 5, 6);
-    expect(L.maValues[1].vals[8]).toBeNull();
-    expect(L.maValues[1].vals[9]).toBeCloseTo(14.5, 6);
-    expect(L.maValues[2].vals[18]).toBeNull();
-    expect(L.maValues[2].vals[19]).toBeCloseTo(19.5, 6);
-    expect(L.volMaVals[3]).toBeNull();
-    expect(L.volMaVals[4]).toBeCloseTo(100, 6);
-  });
-
-  it('renders display window while computing MA over full history', () => {
-    const closes = Array.from({ length: 79 }, (_, i) => 10 + i * 0.5);
-    const many: KlinePoint[] = closes.map((c, i) => ({
-      date: `202608${String((i % 9) + 1).padStart(2, '0')}`,
-      open: c, close: c, high: c + 1, low: c - 1, volume: 500 + i,
-    }));
-    const L = buildKlineLayout(many, 60)!;
-    expect(L.candles).toHaveLength(60);
-    expect(L.lastPrice).toBe(closes[78]);
-    // 可见窗口首根（全量第 19 根）即有 MA20 值：窗口外历史参与计算
-    expect(L.maValues[2].vals[0]).toBeCloseTo(
-      closes.slice(0, 20).reduce((a, b) => a + b, 0) / 20, 6,
-    );
-    expect(L.maLines[2].points!.split(' ')).toHaveLength(60);
-    for (const mv of L.maValues) expect(mv.vals).toHaveLength(60);
-    expect(L.volMaVals).toHaveLength(60);
-    expect(L.xTicks.every((t) => t.label.length > 0)).toBe(true);
-  });
-
-  it('returns null for empty input instead of NaN layout', () => {
-    expect(buildKlineLayout([])).toBeNull();
   });
 });
